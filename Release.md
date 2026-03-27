@@ -14,6 +14,7 @@ This release introduces the new `mix` transport selector for frpc/frps and ships
 * Fixed mix startup retry behavior so initial authentication failures no longer exit the client, and an all-failing candidate list keeps cycling instead of stalling on the last protocol.
 * Added ordered client-side host fallback via `mixFallbackHosts`, expanding the retry / failback priority space from `protocols[]` to `endpoint × protocol` candidates.
 * Hardened mix release validation by fixing UDP demux shutdown races and making the TCP/UDP shared-port test port reservation deterministic in automated runs.
+* Improved Android / Termux DNS compatibility by discovering resolver addresses from resolv.conf-style files and falling back to public DNS when the environment has no usable local `:53` resolver.
 
 ## Protocol and Runtime Notes
 
