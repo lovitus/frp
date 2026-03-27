@@ -26,13 +26,13 @@ go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./se
 1. Merge the desired `dev` state into `master`.
 2. Update `pkg/util/version/version.go` if the binary version needs to change.
 3. Update `Release.md` with curated highlights, compatibility notes, and operational guidance.
-4. Create and push an annotated tag:
+4. Create and push an annotated tag. A green branch CI run alone does not create a GitHub Release; only a pushed `v*` tag triggers the package and publish jobs.
 
 ```bash
 git checkout master
 git pull origin master
-git tag -a vX.Y.Z -m "release vX.Y.Z"
-git push origin vX.Y.Z
+git tag -a v0.68.1-mix.1 -m "release v0.68.1-mix.1"
+git push origin v0.68.1-mix.1
 ```
 
 ## What GitHub Actions Do On Tag Push
