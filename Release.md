@@ -29,7 +29,6 @@ This release introduces the new `mix` transport selector for frpc/frps and ships
 
 * GitHub Actions now validate the codebase, run the mix benchmark harness for release tags, cross-build all packaged binaries on GitHub runners, and publish GitHub Releases directly from Actions.
 * Release assets are uploaded from GitHub-hosted runners, not through a local workstation.
-* Published GitHub Releases continue to trigger the image workflow, which now defaults to the current repository owner and uses `github.token` for GHCR publishing.
 
 ## Maintainer Notes
 

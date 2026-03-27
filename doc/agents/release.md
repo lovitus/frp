@@ -62,8 +62,6 @@ The release job publishes:
 - all packaged `frpc` / `frps` archives from `release/packages/`
 - `frp_sha256_checksums.txt`
 
-The separate image workflow listens for GitHub Release publication and can publish container images without involving a local machine.
-
 ## Related Docs
 
 - `doc/mix.md`
