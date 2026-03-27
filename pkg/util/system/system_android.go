@@ -17,9 +17,13 @@ package system
 import (
 	"context"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	netpkg "github.com/fatedier/frp/pkg/util/net"
 )
 
 func EnableCompatibilityMode() {
@@ -40,10 +44,15 @@ func fixTimezone() {
 	time.Local = loc
 }
 
-// fixDNSResolver will first attempt to resolve google.com to check if the current DNS is available.
-// If it is not available, it will default to using 8.8.8.8 as the DNS server.
-// This is a workaround for the issue that golang can't get the default DNS servers on Android.
+// fixDNSResolver first checks whether the default resolver is already usable.
+// If it is not, it tries to discover Android / Termux nameservers from resolv.conf-like files
+// and falls back to well-known public DNS servers. This avoids depending on a local :53 listener.
 func fixDNSResolver() {
+	if isTermuxLike() {
+		installAndroidDNSFallback()
+		return
+	}
+
 	// First, we attempt to resolve a domain. If resolution is successful, no modifications are necessary.
 	// In real-world scenarios, users may have already configured /etc/resolv.conf, or compiled directly
 	// in the Android environment instead of using cross-platform compilation, so this issue does not arise.
@@ -55,16 +64,29 @@ func fixDNSResolver() {
 			return
 		}
 	}
-	// If the resolution fails, use 8.8.8.8 as the DNS server.
-	// Note: If there are other methods to obtain the default DNS servers, the default DNS servers should be used preferentially.
-	net.DefaultResolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if addr == "127.0.0.1:53" || addr == "[::1]:53" {
-				addr = "8.8.8.8:53"
-			}
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		},
+
+	installAndroidDNSFallback()
+}
+
+func installAndroidDNSFallback() {
+	servers := discoverAndroidDNSServers()
+	if len(servers) == 0 {
+		servers = []string{"8.8.8.8:53", "1.1.1.1:53"}
 	}
+	_ = netpkg.SetDefaultDNSServers(servers)
+}
+
+func isTermuxLike() bool {
+	if os.Getenv("TERMUX_VERSION") != "" {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(os.Getenv("PREFIX")), "/data/data/com.termux")
+}
+
+func discoverAndroidDNSServers() []string {
+	paths := []string{"/etc/resolv.conf"}
+	if prefix := strings.TrimSpace(os.Getenv("PREFIX")); prefix != "" {
+		paths = append(paths, filepath.Join(prefix, "etc", "resolv.conf"))
+	}
+	return netpkg.ParseResolvConfPaths(paths...)
 }
