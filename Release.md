@@ -11,6 +11,7 @@ This release introduces the new `mix` transport selector for frpc/frps and ships
 * Added server-side mix listeners that share one numeric TCP/UDP port and route accepted traffic to the correct sub-protocol implementation.
 * Added `selectedProtocol` reporting to client status, server client registry, dashboard APIs, logs, and Prometheus server metrics.
 * Added example configs, transport documentation, integration tests, and repeatable benchmark scripts for mix.
+* Fixed mix startup retry behavior so initial authentication failures no longer exit the client, and an all-failing candidate list keeps cycling instead of stalling on the last protocol.
 
 ## Protocol and Runtime Notes
 
