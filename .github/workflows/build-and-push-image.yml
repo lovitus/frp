@@ -11,6 +11,7 @@ on:
         default: 'test'
 permissions:
   contents: read
+  packages: write
 
 jobs:
   image:
@@ -37,28 +38,49 @@ jobs:
           else
             echo "TAG_NAME=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
           fi
+
       - name: Login to DockerHub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_PASSWORD != '' }}
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Login to the GPR
+      - name: Login to GHCR
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GPR_TOKEN }}
+          password: ${{ github.token }}
 
       # prepare image tags
       - name: Prepare Image Tags
+        shell: bash
         run: |
+          owner_lc=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker_namespace="${{ vars.DOCKERHUB_NAMESPACE }}"
+          if [ -z "${docker_namespace}" ]; then
+            docker_namespace="${owner_lc}"
+          fi
+
           echo "DOCKERFILE_FRPC_PATH=dockerfiles/Dockerfile-for-frpc" >> $GITHUB_ENV
           echo "DOCKERFILE_FRPS_PATH=dockerfiles/Dockerfile-for-frps" >> $GITHUB_ENV
-          echo "TAG_FRPC=fatedier/frpc:${{ env.TAG_NAME }}" >> $GITHUB_ENV
-          echo "TAG_FRPS=fatedier/frps:${{ env.TAG_NAME }}" >> $GITHUB_ENV
-          echo "TAG_FRPC_GPR=ghcr.io/fatedier/frpc:${{ env.TAG_NAME }}" >> $GITHUB_ENV
-          echo "TAG_FRPS_GPR=ghcr.io/fatedier/frps:${{ env.TAG_NAME }}" >> $GITHUB_ENV
+          {
+            echo "TAG_FRPC<<EOF"
+            echo "ghcr.io/${owner_lc}/frpc:${{ env.TAG_NAME }}"
+            if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
+              echo "${docker_namespace}/frpc:${{ env.TAG_NAME }}"
+            fi
+            echo "EOF"
+          } >> $GITHUB_ENV
+          {
+            echo "TAG_FRPS<<EOF"
+            echo "ghcr.io/${owner_lc}/frps:${{ env.TAG_NAME }}"
+            if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
+              echo "${docker_namespace}/frps:${{ env.TAG_NAME }}"
+            fi
+            echo "EOF"
+          } >> $GITHUB_ENV
 
       - name: Build and push frpc
         uses: docker/build-push-action@v7
@@ -67,9 +89,7 @@ jobs:
           file: ./dockerfiles/Dockerfile-for-frpc
           platforms: linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le,linux/s390x
           push: true
-          tags: |
-            ${{ env.TAG_FRPC }}
-            ${{ env.TAG_FRPC_GPR }}
+          tags: ${{ env.TAG_FRPC }}
 
       - name: Build and push frps
         uses: docker/build-push-action@v7
@@ -78,6 +98,4 @@ jobs:
           file: ./dockerfiles/Dockerfile-for-frps
           platforms: linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le,linux/s390x
           push: true
-          tags: |
-            ${{ env.TAG_FRPS }}
-            ${{ env.TAG_FRPS_GPR }}
+          tags: ${{ env.TAG_FRPS }}

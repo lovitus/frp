@@ -44,15 +44,15 @@ func (m *serverMetrics) Add(sm metrics.ServerMetrics) {
 	m.ms = append(m.ms, sm)
 }
 
-func (m *serverMetrics) NewClient() {
+func (m *serverMetrics) NewClient(protocol string) {
 	for _, v := range m.ms {
-		v.NewClient()
+		v.NewClient(protocol)
 	}
 }
 
-func (m *serverMetrics) CloseClient() {
+func (m *serverMetrics) CloseClient(protocol string) {
 	for _, v := range m.ms {
-		v.CloseClient()
+		v.CloseClient(protocol)
 	}
 }
 

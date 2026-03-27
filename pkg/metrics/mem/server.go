@@ -90,11 +90,11 @@ func (m *serverMetrics) ClearOfflineProxies() (int, int) {
 	return m.clearUselessInfo(0)
 }
 
-func (m *serverMetrics) NewClient() {
+func (m *serverMetrics) NewClient(_ string) {
 	m.info.ClientCounts.Inc(1)
 }
 
-func (m *serverMetrics) CloseClient() {
+func (m *serverMetrics) CloseClient(_ string) {
 	m.info.ClientCounts.Dec(1)
 }
 

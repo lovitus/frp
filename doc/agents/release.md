@@ -1,80 +1,71 @@
 # Release Process
 
-## 1. Update Release Notes
+This repository now uses GitHub Actions to validate, package, and publish release artifacts directly from GitHub-hosted runners.
 
-Edit `Release.md` in the project root with the changes for this version:
+## Expected Git Remotes
 
-```markdown
-## Features
-* ...
+Use this remote layout so upstream sync and fork publishing stay separate:
 
-## Improvements
-* ...
+- `origin`: your fork, for example `https://github.com/lovitus/frp.git`
+- `upstream`: the source project, `https://github.com/fatedier/frp.git`
 
-## Fixes
-* ...
-```
+## Regular Development Flow
 
-This file is used by GoReleaser as the GitHub Release body.
-
-## 2. Bump Version
-
-Update the version string in `pkg/util/version/version.go`:
-
-```go
-var version = "0.X.0"
-```
-
-Commit and push to `dev`:
+1. Sync your local branches from upstream.
+2. Land new work on `dev`.
+3. Keep curated release notes up to date in `Release.md`.
+4. Run the local validation and mix benchmark commands before tagging:
 
 ```bash
-git add pkg/util/version/version.go Release.md
-git commit -m "bump version to vX.Y.Z"
-git push origin dev
+go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./server/...
+./hack/run-mix-bench.sh
 ```
 
-## 3. Merge dev → master
+## Stable Release Flow
 
-Create a PR from `dev` to `master`:
-
-```bash
-gh pr create --base master --head dev --title "bump version"
-```
-
-Wait for CI to pass, then merge using **merge commit** (not squash).
-
-## 4. Tag the Release
+1. Merge the desired `dev` state into `master`.
+2. Update `pkg/util/version/version.go` if the binary version needs to change.
+3. Update `Release.md` with curated highlights, compatibility notes, and operational guidance.
+4. Create and push an annotated tag:
 
 ```bash
 git checkout master
 git pull origin master
-git tag -a vX.Y.Z -m "bump version"
+git tag -a vX.Y.Z -m "release vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-## 5. Trigger GoReleaser
+## What GitHub Actions Do On Tag Push
 
-Manually trigger the `goreleaser` workflow in GitHub Actions:
+When a `v*` tag is pushed, `.github/workflows/ci-release.yml` will:
 
-```bash
-gh workflow run goreleaser --ref master
-```
+1. Build the web assets.
+2. Run the Go validation suite.
+3. Run `./hack/run-mix-bench.sh`.
+4. Cross-build packaged binaries for all configured OS/arch targets via `./package.sh`.
+5. Generate SHA256 checksums for the packaged artifacts.
+6. Generate release notes by combining `Release.md` with an automated git changelog.
+7. Create or update the GitHub Release and upload all packages directly from Actions.
 
-GoReleaser will:
-1. Run `package.sh` to cross-compile all platforms and create archives
-2. Create a GitHub Release with all packages, using `Release.md` as release notes
+The workflow never depends on a local workstation to upload release binaries.
 
-## Key Files
+## Release Notes Sources
 
-| File | Purpose |
-|------|---------|
-| `pkg/util/version/version.go` | Version string |
-| `Release.md` | Release notes (read by GoReleaser) |
-| `.goreleaser.yml` | GoReleaser config |
-| `package.sh` | Cross-compile and packaging script |
-| `.github/workflows/goreleaser.yml` | GitHub Actions workflow (manual trigger) |
+- Curated intro and operator-facing notes: `Release.md`
+- Automated changelog assembly: `hack/generate-release-notes.sh`
+- Benchmark evidence: `doc/mix_benchmark_results.md` and workflow artifacts from `tmp/mix-bench/`
 
-## Versioning
+## Release Assets
 
-- Minor release: `v0.X.0`
-- Patch release: `v0.X.Y` (e.g., `v0.62.1`)
+The release job publishes:
+
+- all packaged `frpc` / `frps` archives from `release/packages/`
+- `frp_sha256_checksums.txt`
+
+The separate image workflow listens for GitHub Release publication and can publish container images without involving a local machine.
+
+## Related Docs
+
+- `doc/mix.md`
+- `doc/mix_benchmark_results.md`
+- `doc/upstream-sync.md`

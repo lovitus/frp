@@ -48,6 +48,7 @@ type ClientInfoResp struct {
 	Version          string `json:"version,omitempty"`
 	Hostname         string `json:"hostname"`
 	ClientIP         string `json:"clientIP,omitempty"`
+	SelectedProtocol string `json:"selectedProtocol,omitempty"`
 	FirstConnectedAt int64  `json:"firstConnectedAt"`
 	LastConnectedAt  int64  `json:"lastConnectedAt"`
 	DisconnectedAt   int64  `json:"disconnectedAt,omitempty"`

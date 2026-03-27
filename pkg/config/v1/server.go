@@ -31,6 +31,14 @@ type ServerConfig struct {
 	// BindPort specifies the port that the server listens on. By default, this
 	// value is 7000.
 	BindPort int `json:"bindPort,omitempty"`
+	// MixBindPort specifies the shared mix transport port.
+	MixBindPort int `json:"mixBindPort,omitempty"`
+	// MixBindPortLegacy accepts snake_case config for mix_bind_port.
+	MixBindPortLegacy int `json:"mix_bind_port,omitempty"`
+	// MixToken configures enabled mix transport entries.
+	MixToken string `json:"mixToken,omitempty"`
+	// MixTokenLegacy accepts snake_case config for mix_token.
+	MixTokenLegacy string `json:"mix_token,omitempty"`
 	// KCPBindPort specifies the KCP port that the server listens on. If this
 	// value is 0, the server will not listen for KCP connections.
 	KCPBindPort int `json:"kcpBindPort,omitempty"`
@@ -99,6 +107,12 @@ type ServerConfig struct {
 }
 
 func (c *ServerConfig) Complete() error {
+	if c.MixBindPort == 0 {
+		c.MixBindPort = c.MixBindPortLegacy
+	}
+	if c.MixToken == "" {
+		c.MixToken = c.MixTokenLegacy
+	}
 	if err := c.Auth.Complete(); err != nil {
 		return err
 	}

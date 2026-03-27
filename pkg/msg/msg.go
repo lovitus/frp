@@ -90,6 +90,8 @@ type Login struct {
 
 	// Some global configures.
 	PoolCount int `json:"pool_count,omitempty"`
+
+	SelectedProtocol string `json:"selected_protocol,omitempty"`
 }
 
 type LoginResp struct {

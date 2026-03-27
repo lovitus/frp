@@ -62,6 +62,11 @@ func (e cancelErr) Error() string {
 	return e.Err.Error()
 }
 
+type mixLoginReporter interface {
+	ReportLoginSuccess()
+	ReportLoginFailure(error)
+}
+
 // ServiceOptions contains options for creating a new client service.
 type ServiceOptions struct {
 	Common *v1.ClientCommonConfig
@@ -101,9 +106,6 @@ func setServiceOptionsDefault(options *ServiceOptions) error {
 		if err := options.Common.Complete(); err != nil {
 			return err
 		}
-	}
-	if options.ConnectorCreator == nil {
-		options.ConnectorCreator = NewConnector
 	}
 	return nil
 }
@@ -156,11 +158,26 @@ type Service struct {
 
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 	handleWorkConnCb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
+	mixManager       *MixConnectorManager
+	selectedProtoMu  sync.RWMutex
+	selectedProto    string
 }
 
 func NewService(options ServiceOptions) (*Service, error) {
 	if err := setServiceOptionsDefault(&options); err != nil {
 		return nil, err
+	}
+	var mixManager *MixConnectorManager
+	if options.Common != nil && options.Common.IsMixEnabled() && options.ConnectorCreator == nil {
+		var err error
+		mixManager, err = NewMixConnectorManager(options.Common)
+		if err != nil {
+			return nil, err
+		}
+		options.ConnectorCreator = mixManager.NewConnector
+	}
+	if options.ConnectorCreator == nil {
+		options.ConnectorCreator = NewConnector
 	}
 
 	authRuntime, err := auth.BuildClientAuth(&options.Common.Auth)
@@ -210,6 +227,7 @@ func NewService(options ServiceOptions) (*Service, error) {
 		storeSource:      storeSource,
 		connectorCreator: options.ConnectorCreator,
 		handleWorkConnCb: options.HandleWorkConnCb,
+		mixManager:       mixManager,
 	}
 
 	if webServer != nil {
@@ -266,6 +284,9 @@ func (svr *Service) Run(ctx context.Context) error {
 	}
 
 	go svr.keepControllerWorking()
+	if svr.mixManager != nil {
+		go svr.keepMixFailback()
+	}
 
 	<-svr.ctx.Done()
 	svr.stop()
@@ -273,7 +294,13 @@ func (svr *Service) Run(ctx context.Context) error {
 }
 
 func (svr *Service) keepControllerWorking() {
-	<-svr.ctl.Done()
+	svr.ctlMu.RLock()
+	ctl := svr.ctl
+	svr.ctlMu.RUnlock()
+	if ctl == nil {
+		return
+	}
+	<-ctl.Done()
 
 	// There is a situation where the login is successful but due to certain reasons,
 	// the control immediately exits. It is necessary to limit the frequency of reconnection in this case.
@@ -283,8 +310,11 @@ func (svr *Service) keepControllerWorking() {
 		// loopLoginUntilSuccess is another layer of loop that will continuously attempt to
 		// login to the server until successful.
 		svr.loopLoginUntilSuccess(20*time.Second, false)
-		if svr.ctl != nil {
-			<-svr.ctl.Done()
+		svr.ctlMu.RLock()
+		ctl := svr.ctl
+		svr.ctlMu.RUnlock()
+		if ctl != nil {
+			<-ctl.Done()
 			return false, errors.New("control is closed and try another loop")
 		}
 		// If the control is nil, it means that the login failed and the service is also closed.
@@ -315,6 +345,9 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 
 	defer func() {
 		if err != nil {
+			if reporter, ok := connector.(mixLoginReporter); ok {
+				reporter.ReportLoginFailure(err)
+			}
 			connector.Close()
 		}
 	}()
@@ -337,6 +370,9 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 		Timestamp: time.Now().Unix(),
 		RunID:     svr.runID,
 		Metas:     svr.common.Metadatas,
+	}
+	if connectorWithProtocol, ok := connector.(interface{ SelectedProtocol() string }); ok {
+		loginMsg.SelectedProtocol = connectorWithProtocol.SelectedProtocol()
 	}
 	if svr.clientSpec != nil {
 		loginMsg.ClientSpec = *svr.clientSpec
@@ -368,7 +404,73 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 	xl.AddPrefix(xlog.LogPrefix{Name: "runID", Value: svr.runID})
 
 	xl.Infof("login to server success, get run id [%s]", loginRespMsg.RunID)
+	if connectorWithProtocol, ok := connector.(interface{ SelectedProtocol() string }); ok {
+		selected := connectorWithProtocol.SelectedProtocol()
+		if selected != "" {
+			svr.setSelectedProtocol(selected)
+			xl.Infof("selected protocol [%s]", selected)
+		}
+	}
+	if reporter, ok := connector.(mixLoginReporter); ok {
+		reporter.ReportLoginSuccess()
+	}
 	return
+}
+
+func (svr *Service) keepMixFailback() {
+	xl := xlog.FromContextSafe(svr.ctx)
+	ticker := time.NewTicker(mixFailbackInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-svr.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		baseIndex, candidates, ok := svr.mixManager.nextFailbackCandidates()
+		if !ok {
+			continue
+		}
+		switched := false
+
+		svr.ctlMu.RLock()
+		ctl := svr.ctl
+		svr.ctlMu.RUnlock()
+		if ctl == nil {
+			svr.mixManager.finishProbe()
+			continue
+		}
+		select {
+		case <-ctl.Done():
+			svr.mixManager.finishProbe()
+			continue
+		default:
+		}
+
+		for _, candidate := range candidates {
+			xl.Infof("mix failback probe start, active protocol [%s], target protocol [%s]",
+				svr.mixManager.SelectedProtocol(), candidate.Protocol.Protocol)
+			probeCtx, cancel := context.WithTimeout(svr.ctx, time.Duration(svr.common.Transport.DialServerTimeout)*time.Second)
+			err := probeMixProtocol(probeCtx, svr.common, candidate.Protocol)
+			cancel()
+			if err != nil {
+				xl.Warnf("mix failback probe fail, target protocol [%s], err: %v", candidate.Protocol.Protocol, err)
+				continue
+			}
+
+			if svr.mixManager.switchToPreferred(baseIndex, candidate.Index) {
+				xl.Infof("mix failback switch start, target protocol [%s]", candidate.Protocol.Protocol)
+				switched = true
+				_ = ctl.Close()
+			}
+			break
+		}
+		if !switched {
+			svr.mixManager.finishProbe()
+		}
+	}
 }
 
 func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
@@ -420,14 +522,23 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 		return true, nil
 	}
 
-	// try to reconnect to server until success
-	wait.BackoffUntil(loginFunc, wait.NewFastBackoffManager(
-		wait.FastBackoffOptions{
+	backoffOptions := wait.FastBackoffOptions{
+		Duration:    time.Second,
+		Factor:      2,
+		Jitter:      0.1,
+		MaxDuration: maxInterval,
+	}
+	if svr.mixManager != nil {
+		backoffOptions = wait.FastBackoffOptions{
 			Duration:    time.Second,
-			Factor:      2,
-			Jitter:      0.1,
-			MaxDuration: maxInterval,
-		}), true, svr.ctx.Done())
+			Factor:      1,
+			Jitter:      0,
+			MaxDuration: time.Second,
+		}
+	}
+
+	// try to reconnect to server until success
+	wait.BackoffUntil(loginFunc, wait.NewFastBackoffManager(backoffOptions), true, svr.ctx.Done())
 }
 
 func (svr *Service) UpdateAllConfigurer(proxyCfgs []v1.ProxyConfigurer, visitorCfgs []v1.VisitorConfigurer) error {
@@ -535,19 +646,41 @@ func (svr *Service) getVisitorCfg(name string) (v1.VisitorConfigurer, bool) {
 func (svr *Service) StatusExporter() StatusExporter {
 	return &statusExporterImpl{
 		getProxyStatusFunc: svr.getProxyStatus,
+		getSelectedProtoFn: svr.getSelectedProtocol,
 	}
 }
 
 type StatusExporter interface {
 	GetProxyStatus(name string) (*proxy.WorkingStatus, bool)
+	SelectedProtocol() string
 }
 
 type statusExporterImpl struct {
 	getProxyStatusFunc func(name string) (*proxy.WorkingStatus, bool)
+	getSelectedProtoFn func() string
 }
 
 func (s *statusExporterImpl) GetProxyStatus(name string) (*proxy.WorkingStatus, bool) {
 	return s.getProxyStatusFunc(name)
+}
+
+func (s *statusExporterImpl) SelectedProtocol() string {
+	if s.getSelectedProtoFn == nil {
+		return ""
+	}
+	return s.getSelectedProtoFn()
+}
+
+func (svr *Service) setSelectedProtocol(protocol string) {
+	svr.selectedProtoMu.Lock()
+	defer svr.selectedProtoMu.Unlock()
+	svr.selectedProto = protocol
+}
+
+func (svr *Service) getSelectedProtocol() string {
+	svr.selectedProtoMu.RLock()
+	defer svr.selectedProtoMu.RUnlock()
+	return svr.selectedProto
 }
 
 func (svr *Service) reloadConfigFromSources() error {

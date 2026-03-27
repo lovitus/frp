@@ -147,6 +147,13 @@ Finally, we acknowledge that the current design of modules such as configuration
 
 We sincerely appreciate your support for frp.
 
+Current fork-maintainer documents for the new mix transport and release flow:
+
+- `doc/mix.md`
+- `doc/mix_benchmark_results.md`
+- `doc/upstream-sync.md`
+- `doc/agents/release.md`
+
 ## Architecture
 
 ![architecture](/doc/pic/architecture.png)

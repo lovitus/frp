@@ -19,6 +19,7 @@ test/bin/
 vendor/
 lastversion/
 dist/
+tmp/
 .idea/
 .vscode/
 .autogen_ssh_key

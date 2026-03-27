@@ -89,6 +89,13 @@ v2 的构想是基于我多年在云原生领域，特别是在 K8s 和 ServiceM
 
 非常感谢您对 frp 的支持。
 
+当前这个 fork 与 mix 传输相关的维护文档在这里：
+
+* `doc/mix.md`
+* `doc/mix_benchmark_results.md`
+* `doc/upstream-sync.md`
+* `doc/agents/release.md`
+
 ## 文档
 
 完整文档已经迁移至 [https://gofrp.org](https://gofrp.org)。

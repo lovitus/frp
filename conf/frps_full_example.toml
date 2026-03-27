@@ -6,6 +6,11 @@
 bindAddr = "0.0.0.0"
 bindPort = 7000
 
+# mixBindPort enables the high-level mix transport selector on the same numeric
+# port for TCP and UDP traffic.
+# mixBindPort = 7000
+# mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
+
 # udp port used for kcp protocol, it can be same with 'bindPort'.
 # if not set, kcp is disabled in frps.
 kcpBindPort = 7000

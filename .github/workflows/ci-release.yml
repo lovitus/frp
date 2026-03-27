@@ -1,0 +1,174 @@
+name: ci-release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - master
+      - "codex/**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Build web assets (frps)
+        run: make build
+        working-directory: web/frps
+
+      - name: Build web assets (frpc)
+        run: make build
+        working-directory: web/frpc
+
+      - name: Run mix-aware validation suite
+        run: go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./server/...
+
+  mix-bench:
+    name: Mix Bench
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Build web assets (frps)
+        run: make build
+        working-directory: web/frps
+
+      - name: Build web assets (frpc)
+        run: make build
+        working-directory: web/frpc
+
+      - name: Run mix benchmark harness
+        run: ./hack/run-mix-bench.sh
+
+      - name: Upload mix benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mix-bench-${{ github.ref_name }}
+          path: tmp/mix-bench/*
+          if-no-files-found: error
+
+  package:
+    name: Cross Build Packages
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - validate
+      - mix-bench
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Build web assets (frps)
+        run: make build
+        working-directory: web/frps
+
+      - name: Build web assets (frpc)
+        run: make build
+        working-directory: web/frpc
+
+      - name: Build release packages
+        run: ./package.sh
+
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          shopt -s nullglob
+          cd release/packages
+          sha256sum ./* > frp_sha256_checksums.txt
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages-${{ github.ref_name }}
+          path: release/packages/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: release-packages-${{ github.ref_name }}
+          path: release/packages
+
+      - name: Generate release notes
+        run: ./hack/generate-release-notes.sh "${GITHUB_REF_NAME}" "${RUNNER_TEMP}/release-notes.md"
+
+      - name: Create or update release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find release/packages -maxdepth 1 -type f | sort)
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file "${RUNNER_TEMP}/release-notes.md"
+            gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file "${RUNNER_TEMP}/release-notes.md" \
+              --latest
+          fi

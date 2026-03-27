@@ -59,6 +59,7 @@ import (
 const (
 	connReadTimeout       time.Duration = 10 * time.Second
 	vhostReadWriteTimeout time.Duration = 30 * time.Second
+	mixDetectTimeout      time.Duration = 2 * time.Second
 )
 
 func init() {
@@ -91,6 +92,12 @@ type Service struct {
 	// Accept frp tls connections
 	tlsListener net.Listener
 
+	// Mix transport listeners
+	mixListener     net.Listener
+	mixUDPConn      net.PacketConn
+	mixKCPListener  net.Listener
+	mixQUICListener *quic.Listener
+
 	// Accept pipe connections from ssh tunnel gateway
 	sshTunnelListener *netpkg.InternalListener
 
@@ -121,6 +128,7 @@ type Service struct {
 	auth *auth.ServerAuth
 
 	tlsConfig *tls.Config
+	mixConfig *mixServerConfig
 
 	cfg *v1.ServerConfig
 
@@ -216,34 +224,37 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 	vhost.NotFoundPagePath = cfg.Custom404Page
 
 	var (
-		httpMuxOn  bool
-		httpsMuxOn bool
+		httpMuxOn                bool
+		httpsMuxOn               bool
+		defaultClientListenOnMix = cfg.IsMixEnabled() && cfg.MixBindPort > 0 && cfg.MixBindPort == cfg.BindPort
 	)
 	if cfg.BindAddr == cfg.ProxyBindAddr {
-		if cfg.BindPort == cfg.VhostHTTPPort {
+		if !defaultClientListenOnMix && cfg.BindPort == cfg.VhostHTTPPort {
 			httpMuxOn = true
 		}
-		if cfg.BindPort == cfg.VhostHTTPSPort {
+		if !defaultClientListenOnMix && cfg.BindPort == cfg.VhostHTTPSPort {
 			httpsMuxOn = true
 		}
 	}
 
-	// Listen for accepting connections from client.
-	address := net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.BindPort))
-	ln, err := net.Listen("tcp", address)
-	if err != nil {
-		return nil, fmt.Errorf("create server listener error, %v", err)
+	if !defaultClientListenOnMix {
+		// Listen for accepting connections from client.
+		address := net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.BindPort))
+		ln, err := net.Listen("tcp", address)
+		if err != nil {
+			return nil, fmt.Errorf("create server listener error, %v", err)
+		}
+
+		svr.muxer = mux.NewMux(ln)
+		svr.muxer.SetKeepAlive(time.Duration(cfg.Transport.TCPKeepAlive) * time.Second)
+		go func() {
+			_ = svr.muxer.Serve()
+		}()
+		ln = svr.muxer.DefaultListener()
+
+		svr.listener = ln
+		log.Infof("frps tcp listen on %s", address)
 	}
-
-	svr.muxer = mux.NewMux(ln)
-	svr.muxer.SetKeepAlive(time.Duration(cfg.Transport.TCPKeepAlive) * time.Second)
-	go func() {
-		_ = svr.muxer.Serve()
-	}()
-	ln = svr.muxer.DefaultListener()
-
-	svr.listener = ln
-	log.Infof("frps tcp listen on %s", address)
 
 	// Listen for accepting connections from client using kcp protocol.
 	if cfg.KCPBindPort > 0 {
@@ -279,12 +290,14 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		log.Infof("frps sshTunnelGateway listen on port %d", cfg.SSHTunnelGateway.BindPort)
 	}
 
-	// Listen for accepting connections from client using websocket protocol.
-	websocketPrefix := []byte("GET " + netpkg.FrpWebsocketPath)
-	websocketLn := svr.muxer.Listen(0, uint32(len(websocketPrefix)), func(data []byte) bool {
-		return bytes.Equal(data, websocketPrefix)
-	})
-	svr.websocketListener = netpkg.NewWebsocketListener(websocketLn)
+	if svr.muxer != nil {
+		// Listen for accepting connections from client using websocket protocol.
+		websocketPrefix := []byte("GET " + netpkg.FrpWebsocketPath)
+		websocketLn := svr.muxer.Listen(0, uint32(len(websocketPrefix)), func(data []byte) bool {
+			return bytes.Equal(data, websocketPrefix)
+		})
+		svr.websocketListener = netpkg.NewWebsocketListener(websocketLn)
+	}
 
 	// Create http vhost muxer.
 	if cfg.VhostHTTPPort > 0 {
@@ -337,11 +350,17 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		svr.rc.HTTPSGroupCtl = group.NewHTTPSGroupController(svr.rc.VhostHTTPSMuxer)
 	}
 
-	// frp tls listener
-	svr.tlsListener = svr.muxer.Listen(2, 1, func(data []byte) bool {
-		// tls first byte can be 0x16 only when vhost https port is not same with bind port
-		return int(data[0]) == netpkg.FRPTLSHeadByte || int(data[0]) == 0x16
-	})
+	if svr.muxer != nil {
+		// frp tls listener
+		svr.tlsListener = svr.muxer.Listen(2, 1, func(data []byte) bool {
+			// tls first byte can be 0x16 only when vhost https port is not same with bind port
+			return int(data[0]) == netpkg.FRPTLSHeadByte || int(data[0]) == 0x16
+		})
+	}
+
+	if err := svr.initMixTransport(); err != nil {
+		return nil, err
+	}
 
 	// Create nat hole controller.
 	nc, err := nathole.NewController(time.Duration(cfg.NatHoleAnalysisDataReserveHours) * time.Hour)
@@ -375,8 +394,13 @@ func (svr *Service) Run(ctx context.Context) {
 	if svr.quicListener != nil {
 		go svr.HandleQUICListener(svr.quicListener)
 	}
-	go svr.HandleListener(svr.websocketListener, false)
-	go svr.HandleListener(svr.tlsListener, false)
+	if svr.websocketListener != nil {
+		go svr.HandleListener(svr.websocketListener, false)
+	}
+	if svr.tlsListener != nil {
+		go svr.HandleListener(svr.tlsListener, false)
+	}
+	svr.runMixTransport()
 
 	if svr.rc.NatHoleController != nil {
 		go svr.rc.NatHoleController.CleanWorker(svr.ctx)
@@ -386,16 +410,19 @@ func (svr *Service) Run(ctx context.Context) {
 		go svr.sshTunnelGateway.Run()
 	}
 
-	svr.HandleListener(svr.listener, false)
+	if svr.listener != nil {
+		svr.HandleListener(svr.listener, false)
+	}
 
 	<-svr.ctx.Done()
 	// service context may not be canceled by svr.Close(), we should call it here to release resources
-	if svr.listener != nil {
+	if svr.listener != nil || svr.mixListener != nil {
 		svr.Close()
 	}
 }
 
 func (svr *Service) Close() error {
+	svr.closeMixTransport()
 	if svr.kcpListener != nil {
 		svr.kcpListener.Close()
 	}
@@ -421,7 +448,9 @@ func (svr *Service) Close() error {
 		svr.sshTunnelGateway.Close()
 	}
 	svr.rc.Close()
-	svr.muxer.Close()
+	if svr.muxer != nil {
+		svr.muxer.Close()
+	}
 	svr.ctlManager.Close()
 	if svr.cancel != nil {
 		svr.cancel()
@@ -524,33 +553,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 		}
 
 		// Start a new goroutine to handle connection.
-		go func(ctx context.Context, frpConn net.Conn) {
-			if lo.FromPtr(svr.cfg.Transport.TCPMux) && !internal {
-				fmuxCfg := fmux.DefaultConfig()
-				fmuxCfg.KeepAliveInterval = time.Duration(svr.cfg.Transport.TCPMuxKeepaliveInterval) * time.Second
-				// Use trace level for yamux logs
-				fmuxCfg.LogOutput = xlog.NewTraceWriter(xlog.FromContextSafe(ctx))
-				fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
-				session, err := fmux.Server(frpConn, fmuxCfg)
-				if err != nil {
-					log.Warnf("failed to create mux connection: %v", err)
-					frpConn.Close()
-					return
-				}
-
-				for {
-					stream, err := session.AcceptStream()
-					if err != nil {
-						log.Debugf("accept new mux stream error: %v", err)
-						session.Close()
-						return
-					}
-					go svr.handleConnection(ctx, stream, internal)
-				}
-			} else {
-				svr.handleConnection(ctx, frpConn, internal)
-			}
-		}(ctx, c)
+		go svr.serveAcceptedConn(ctx, c, internal, lo.FromPtr(svr.cfg.Transport.TCPMux) && !internal)
 	}
 }
 
@@ -575,6 +578,32 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 			}
 		}(context.Background(), c)
 	}
+}
+
+func (svr *Service) serveAcceptedConn(ctx context.Context, frpConn net.Conn, internal bool, useTCPMux bool) {
+	if useTCPMux {
+		fmuxCfg := fmux.DefaultConfig()
+		fmuxCfg.KeepAliveInterval = time.Duration(svr.cfg.Transport.TCPMuxKeepaliveInterval) * time.Second
+		fmuxCfg.LogOutput = xlog.NewTraceWriter(xlog.FromContextSafe(ctx))
+		fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
+		session, err := fmux.Server(frpConn, fmuxCfg)
+		if err != nil {
+			log.Warnf("failed to create mux connection: %v", err)
+			frpConn.Close()
+			return
+		}
+
+		for {
+			stream, err := session.AcceptStream()
+			if err != nil {
+				log.Debugf("accept new mux stream error: %v", err)
+				session.Close()
+				return
+			}
+			go svr.handleConnection(ctx, stream, internal)
+		}
+	}
+	svr.handleConnection(ctx, frpConn, internal)
 }
 
 func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, internal bool) error {
@@ -630,7 +659,15 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		remoteAddr = host
 	}
-	_, conflict := svr.clientRegistry.Register(loginMsg.User, loginMsg.ClientID, loginMsg.RunID, loginMsg.Hostname, loginMsg.Version, remoteAddr)
+	_, conflict := svr.clientRegistry.Register(
+		loginMsg.User,
+		loginMsg.ClientID,
+		loginMsg.RunID,
+		loginMsg.Hostname,
+		loginMsg.Version,
+		remoteAddr,
+		loginMsg.SelectedProtocol,
+	)
 	if conflict {
 		svr.ctlManager.Del(loginMsg.RunID, ctl)
 		ctl.Close()
@@ -640,7 +677,7 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	ctl.Start()
 
 	// for statistics
-	metrics.Server.NewClient()
+	metrics.Server.NewClient(loginMsg.SelectedProtocol)
 
 	go func() {
 		// block until control closed

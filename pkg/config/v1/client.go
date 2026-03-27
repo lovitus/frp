@@ -46,6 +46,16 @@ type ClientCommonConfig struct {
 	// ServerPort specifies the port to connect to the server on. By default,
 	// this value is 7000.
 	ServerPort int `json:"serverPort,omitempty"`
+	// MixBindPort specifies the shared mix transport port. When set together
+	// with MixToken, mix transport selection takes precedence over transport.protocol.
+	MixBindPort int `json:"mixBindPort,omitempty"`
+	// MixBindPortLegacy accepts snake_case config to keep the external UX at
+	// "mix_bind_port" while preserving camelCase API fields.
+	MixBindPortLegacy int `json:"mix_bind_port,omitempty"`
+	// MixToken is an ordered list of mix candidates.
+	MixToken string `json:"mixToken,omitempty"`
+	// MixTokenLegacy accepts snake_case config.
+	MixTokenLegacy string `json:"mix_token,omitempty"`
 	// STUN server to help penetrate NAT hole.
 	NatHoleSTUNServer string `json:"natHoleStunServer,omitempty"`
 	// DNSServer specifies a DNS server address for FRPC to use. If this value
@@ -83,6 +93,12 @@ type ClientCommonConfig struct {
 }
 
 func (c *ClientCommonConfig) Complete() error {
+	if c.MixBindPort == 0 {
+		c.MixBindPort = c.MixBindPortLegacy
+	}
+	if c.MixToken == "" {
+		c.MixToken = c.MixTokenLegacy
+	}
 	c.ServerAddr = util.EmptyOr(c.ServerAddr, "0.0.0.0")
 	c.ServerPort = util.EmptyOr(c.ServerPort, 7000)
 	c.LoginFailExit = util.EmptyOr(c.LoginFailExit, lo.ToPtr(true))

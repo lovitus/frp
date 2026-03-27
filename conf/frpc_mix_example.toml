@@ -1,0 +1,21 @@
+serverAddr = "127.0.0.1"
+
+# The mix client uses the same two fields as frps. The order determines
+# fallback and failback priority on the client side.
+mixBindPort = 7000
+mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
+
+auth.method = "token"
+auth.token = "12345678"
+
+loginFailExit = false
+
+log.to = "console"
+log.level = "info"
+
+[[proxies]]
+name = "ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = 6000

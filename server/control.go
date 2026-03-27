@@ -349,7 +349,7 @@ func (ctl *Control) worker() {
 		ctl.closeProxy(pxy)
 	}
 
-	metrics.Server.CloseClient()
+	metrics.Server.CloseClient(ctl.sessionCtx.LoginMsg.SelectedProtocol)
 	ctl.sessionCtx.ClientRegistry.MarkOfflineByRunID(ctl.runID)
 	xl.Infof("client exit success")
 	close(ctl.doneCh)

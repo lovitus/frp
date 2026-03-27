@@ -11,6 +11,11 @@ user = "your_name"
 serverAddr = "0.0.0.0"
 serverPort = 7000
 
+# mixBindPort enables the high-level mix transport selector and overrides
+# transport.protocol when mixBindPort / mixToken are configured.
+# mixBindPort = 7000
+# mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
+
 # STUN server to help penetrate NAT hole.
 # natHoleStunServer = "stun.easyvoip.com:3478"
 

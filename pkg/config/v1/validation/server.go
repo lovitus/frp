@@ -62,6 +62,7 @@ func (v *ConfigValidator) ValidateServerConfig(c *v1.ServerConfig) (Warning, err
 	}
 
 	errs = AppendError(errs, ValidatePort(c.BindPort, "bindPort"))
+	errs = AppendError(errs, validateServerMixConfig(c))
 	errs = AppendError(errs, ValidatePort(c.KCPBindPort, "kcpBindPort"))
 	errs = AppendError(errs, ValidatePort(c.QUICBindPort, "quicBindPort"))
 	errs = AppendError(errs, ValidatePort(c.VhostHTTPPort, "vhostHTTPPort"))
@@ -74,4 +75,23 @@ func (v *ConfigValidator) ValidateServerConfig(c *v1.ServerConfig) (Warning, err
 		}
 	}
 	return warnings, errs
+}
+
+func validateServerMixConfig(c *v1.ServerConfig) error {
+	if !c.IsMixEnabled() {
+		return nil
+	}
+	var errs error
+	errs = AppendError(errs, ValidatePort(c.MixBindPort, "mixBindPort"))
+	if c.MixBindPort == 0 {
+		errs = AppendError(errs, fmt.Errorf("mixBindPort is required when mix is enabled"))
+	}
+	if c.MixToken == "" {
+		errs = AppendError(errs, fmt.Errorf("mixToken is required when mix is enabled"))
+	}
+	if c.MixToken != "" {
+		_, err := v1.ParseMixToken(c.MixToken)
+		errs = AppendError(errs, err)
+	}
+	return errs
 }

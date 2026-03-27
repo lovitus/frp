@@ -39,6 +39,7 @@ func (v *ConfigValidator) ValidateClientCommonConfig(c *v1.ClientCommonConfig) (
 		func() (Warning, error) { return nil, validateLogConfig(&c.Log) },
 		func() (Warning, error) { return nil, validateWebServerConfig(&c.WebServer) },
 		func() (Warning, error) { return validateTransportConfig(&c.Transport) },
+		func() (Warning, error) { return nil, validateClientMixConfig(c) },
 		func() (Warning, error) { return validateIncludeFiles(c.IncludeConfigFiles) },
 	}
 
@@ -48,6 +49,25 @@ func (v *ConfigValidator) ValidateClientCommonConfig(c *v1.ClientCommonConfig) (
 		errs = AppendError(errs, err)
 	}
 	return warnings, errs
+}
+
+func validateClientMixConfig(c *v1.ClientCommonConfig) error {
+	if !c.IsMixEnabled() {
+		return nil
+	}
+	var errs error
+	if c.MixBindPort == 0 {
+		errs = AppendError(errs, fmt.Errorf("mixBindPort is required when mix is enabled"))
+	}
+	if c.MixToken == "" {
+		errs = AppendError(errs, fmt.Errorf("mixToken is required when mix is enabled"))
+	}
+	errs = AppendError(errs, ValidatePort(c.MixBindPort, "mixBindPort"))
+	if c.MixToken != "" {
+		_, err := v1.ParseMixToken(c.MixToken)
+		errs = AppendError(errs, err)
+	}
+	return errs
 }
 
 func validateFeatureGates(c *v1.ClientCommonConfig) (Warning, error) {

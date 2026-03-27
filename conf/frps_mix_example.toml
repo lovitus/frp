@@ -1,0 +1,14 @@
+bindAddr = "0.0.0.0"
+bindPort = 7000
+
+# Mix listens on the same numeric port for both TCP and UDP transports.
+mixBindPort = 7000
+mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
+
+auth.method = "token"
+auth.token = "12345678"
+
+transport.tls.force = false
+
+log.to = "console"
+log.level = "info"

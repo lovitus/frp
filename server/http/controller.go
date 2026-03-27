@@ -289,6 +289,7 @@ func buildClientInfoResp(info registry.ClientInfo) model.ClientInfoResp {
 		Version:          info.Version,
 		Hostname:         info.Hostname,
 		ClientIP:         info.IP,
+		SelectedProtocol: info.SelectedProtocol,
 		FirstConnectedAt: toUnix(info.FirstConnectedAt),
 		LastConnectedAt:  toUnix(info.LastConnectedAt),
 		Online:           info.Online,

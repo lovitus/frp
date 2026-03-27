@@ -14,20 +14,27 @@ const (
 var ServerMetrics metrics.ServerMetrics = newServerMetrics()
 
 type serverMetrics struct {
-	clientCount        prometheus.Gauge
-	proxyCount         *prometheus.GaugeVec
-	proxyCountDetailed *prometheus.GaugeVec
-	connectionCount    *prometheus.GaugeVec
-	trafficIn          *prometheus.CounterVec
-	trafficOut         *prometheus.CounterVec
+	clientCount         prometheus.Gauge
+	clientProtocolCount *prometheus.GaugeVec
+	proxyCount          *prometheus.GaugeVec
+	proxyCountDetailed  *prometheus.GaugeVec
+	connectionCount     *prometheus.GaugeVec
+	trafficIn           *prometheus.CounterVec
+	trafficOut          *prometheus.CounterVec
 }
 
-func (m *serverMetrics) NewClient() {
+func (m *serverMetrics) NewClient(protocol string) {
 	m.clientCount.Inc()
+	if protocol != "" {
+		m.clientProtocolCount.WithLabelValues(protocol).Inc()
+	}
 }
 
-func (m *serverMetrics) CloseClient() {
+func (m *serverMetrics) CloseClient(protocol string) {
 	m.clientCount.Dec()
+	if protocol != "" {
+		m.clientProtocolCount.WithLabelValues(protocol).Dec()
+	}
 }
 
 func (m *serverMetrics) NewProxy(name string, proxyType string, _ string, _ string) {
@@ -64,6 +71,12 @@ func newServerMetrics() *serverMetrics {
 			Name:      "client_counts",
 			Help:      "The current client counts of frps",
 		}),
+		clientProtocolCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: serverSubsystem,
+			Name:      "client_selected_protocol_counts",
+			Help:      "The current online client counts grouped by selected protocol",
+		}, []string{"selected_protocol"}),
 		proxyCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: serverSubsystem,
@@ -96,6 +109,7 @@ func newServerMetrics() *serverMetrics {
 		}, []string{"name", "type"}),
 	}
 	prometheus.MustRegister(m.clientCount)
+	prometheus.MustRegister(m.clientProtocolCount)
 	prometheus.MustRegister(m.proxyCount)
 	prometheus.MustRegister(m.proxyCountDetailed)
 	prometheus.MustRegister(m.connectionCount)
