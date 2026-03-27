@@ -15,6 +15,7 @@ This release introduces the new `mix` transport selector for frpc/frps and ships
 * Added ordered client-side host fallback via `mixFallbackHosts`, expanding the retry / failback priority space from `protocols[]` to `endpoint × protocol` candidates.
 * Hardened mix release validation by fixing UDP demux shutdown races and making the TCP/UDP shared-port test port reservation deterministic in automated runs.
 * Improved Android / Termux DNS compatibility by discovering resolver addresses from resolv.conf-style files and falling back to public DNS when the environment has no usable local `:53` resolver.
+* Removed the probe-domain DNS workaround and switched restricted DNS fallback to the same runtime-detected strategy used in `flyssh`, so Termux-like environments now install the custom resolver directly across both Android and non-Android builds.
 
 ## Protocol and Runtime Notes
 
