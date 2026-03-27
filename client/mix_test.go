@@ -98,6 +98,29 @@ func TestMixManagerFallbackWrapsToFirstProtocol(t *testing.T) {
 	require.Equal(t, 0, manager.CurrentActiveIndex())
 }
 
+func TestMixManagerFallbackWrapsAcrossHostsToFirstCandidate(t *testing.T) {
+	manager := newHostFallbackMixManager(t)
+
+	manager.mu.Lock()
+	manager.activeIndex = len(manager.candidates) - 1
+	manager.mu.Unlock()
+
+	failCount, fallback := manager.recordDialFailure(len(manager.candidates) - 1)
+	require.Equal(t, 1, failCount)
+	require.Nil(t, fallback)
+
+	failCount, fallback = manager.recordDialFailure(len(manager.candidates) - 1)
+	require.Equal(t, 2, failCount)
+	require.Nil(t, fallback)
+
+	failCount, fallback = manager.recordDialFailure(len(manager.candidates) - 1)
+	require.Equal(t, mixFallbackThreshold, failCount)
+	require.NotNil(t, fallback)
+	require.Equal(t, "10.20.0.64:7001", fallback.Address())
+	require.Equal(t, v1.MixProtocolKCP, fallback.Protocol.Protocol)
+	require.Equal(t, 0, manager.CurrentActiveIndex())
+}
+
 func TestMixManagerBuildsHostAndProtocolCandidateOrder(t *testing.T) {
 	manager := newHostFallbackMixManager(t)
 

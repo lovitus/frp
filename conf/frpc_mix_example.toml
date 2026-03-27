@@ -6,7 +6,7 @@ mixBindPort = 7000
 # Optional ordered host fallback list. Each item is HOST or HOST:PORT.
 # If PORT is omitted, mixBindPort is used.
 # The hostnames and IPs below are examples only. Nothing is hard-coded by default.
-# mixFallbackHosts = "10.20.0.65,kr.goodfood.com:7002,[2401:c080:1c02:aaf:5400:4ff:fe78:d01f]:7007"
+# mixFallbackHosts = "10.20.0.65,kr.goodfood.com:7002,[2401:c080:1c02:aaf:5400:8ff:fe88:d88f]:7007"
 mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
 
 auth.method = "token"

@@ -13,6 +13,7 @@ This release introduces the new `mix` transport selector for frpc/frps and ships
 * Added example configs, transport documentation, integration tests, and repeatable benchmark scripts for mix.
 * Fixed mix startup retry behavior so initial authentication failures no longer exit the client, and an all-failing candidate list keeps cycling instead of stalling on the last protocol.
 * Added ordered client-side host fallback via `mixFallbackHosts`, expanding the retry / failback priority space from `protocols[]` to `endpoint × protocol` candidates.
+* Hardened mix release validation by fixing UDP demux shutdown races and making the TCP/UDP shared-port test port reservation deterministic in automated runs.
 
 ## Protocol and Runtime Notes
 

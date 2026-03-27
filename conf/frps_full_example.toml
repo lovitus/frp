@@ -8,6 +8,7 @@ bindPort = 7000
 
 # mixBindPort enables the high-level mix transport selector on the same numeric
 # port for TCP and UDP traffic.
+# frps only needs mixBindPort and mixToken; mixFallbackHosts is a frpc-only field.
 # mixBindPort = 7000
 # mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
 

@@ -188,13 +188,13 @@ func parseMixEndpoint(value string, defaultPort int) (MixEndpointConfig, error) 
 	}
 
 	colonCount := strings.Count(value, ":")
-	switch {
-	case colonCount == 0:
+	switch colonCount {
+	case 0:
 		if value == "" {
 			return MixEndpointConfig{}, fmt.Errorf("host is empty")
 		}
 		return MixEndpointConfig{Host: value, Port: defaultPort}, nil
-	case colonCount == 1:
+	case 1:
 		host, port, err := net.SplitHostPort(value)
 		if err != nil {
 			return MixEndpointConfig{}, err

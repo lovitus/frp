@@ -18,7 +18,7 @@ Optional client-only host fallback can extend the priority list across multiple 
 ```toml
 serverAddr = "10.20.0.64"
 mixBindPort = 7001
-mixFallbackHosts = "10.20.0.65,kr.goodfood.com:7002,[2401:c080:1c02:aaf:5400:4ff:fe78:d01f]:7007"
+mixFallbackHosts = "10.20.0.65,kr.goodfood.com:7002,[2401:c080:1c02:aaf:5400:8ff:fe88:d88f]:7007"
 mixToken = "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://user:sshpass"
 ```
 
@@ -36,6 +36,21 @@ ssh://USERNAME:PASSWORD
 tcp://PASSWORD
 ```
 
+## Candidate Order
+
+The client expands its retry priority into a single flattened candidate queue:
+
+1. `serverAddr:mixBindPort` with `mixToken[0]`
+2. `serverAddr:mixBindPort` with `mixToken[1]`
+3. `...`
+4. `mixFallbackHosts[0]` with `mixToken[0]`
+5. `mixFallbackHosts[0]` with `mixToken[1]`
+6. `...`
+
+If the last configured candidate also keeps failing, the client wraps to the first candidate and continues retrying. It does not exit just because every candidate has failed once.
+
+Failback walks the same flattened queue from the beginning up to the candidate just ahead of the current active one. As soon as an earlier candidate becomes healthy again, the client closes the current control connection and recreates it on that earlier candidate.
+
 ## Runtime Behavior
 
 - The client tries transports in the order listed in `mixToken`.
@@ -47,6 +62,17 @@ tcp://PASSWORD
 - When the last configured candidate also keeps failing, fallback wraps to the first configured candidate and continues cycling instead of exiting.
 - Failback probes higher-priority transports periodically when the active transport is not the first one in the list.
 - When `mix` is enabled, the initial `loginFailExit` behavior is ignored so startup can keep retrying across protocols.
+
+## Testing Coverage
+
+Automated coverage for mix is split across:
+
+- parser and validation tests in `pkg/config/...`
+- client state-machine tests in `client/...`
+- server protocol-routing and end-to-end tests in `server/...`
+- repeatable benchmark and soak coverage in `./hack/run-mix-bench.sh`
+
+Host fallback is covered both at the config/state-machine level and in server-side integration tests that verify fallback to a backup endpoint and failback to the primary endpoint.
 
 ## Logging
 

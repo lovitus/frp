@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strconv"
 	"testing"
@@ -63,6 +64,30 @@ func startMixServer(t *testing.T, token string) (*Service, context.CancelFunc, i
 		_ = serverSvc.Close()
 	})
 	return serverSvc, serverCancel, mixPort
+}
+
+func startMixServerOnPort(t *testing.T, token string, mixPort int) (*Service, context.CancelFunc) {
+	t.Helper()
+
+	bindPort := getFreePort(t)
+	serverCfg := &v1.ServerConfig{
+		BindAddr:    "127.0.0.1",
+		BindPort:    bindPort,
+		MixBindPort: mixPort,
+		MixToken:    token,
+	}
+	require.NoError(t, serverCfg.Complete())
+
+	serverSvc, err := NewService(serverCfg)
+	require.NoError(t, err)
+
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	go serverSvc.Run(serverCtx)
+	t.Cleanup(func() {
+		serverCancel()
+		_ = serverSvc.Close()
+	})
+	return serverSvc, serverCancel
 }
 
 func startMixClient(
@@ -294,6 +319,45 @@ func TestMixFailbackToPreferredProtocol(t *testing.T) {
 	}
 
 	waitForOnlineProtocol(t, serverSvc, "failback-primary", "tcp", 20*time.Second)
+	require.Equal(t, "tcp", clientSvc.StatusExporter().SelectedProtocol())
+}
+
+func TestMixHostFallbackAndFailbackToPrimaryHost(t *testing.T) {
+	restoreMixTiming := clientpkg.SetMixTimingForTesting(100*time.Millisecond, 200*time.Millisecond, 3)
+	defer restoreMixTiming()
+
+	primaryMixPort, releasePrimaryMixPort := reserveDualStackPort(t)
+	releasePrimaryMixPort()
+
+	serverToken := "tcp://tcppass"
+	backupSvc, _, backupMixPort := startMixServer(t, serverToken)
+
+	clientCfg := &v1.ClientCommonConfig{
+		ServerAddr:       "127.0.0.1",
+		MixBindPort:      primaryMixPort,
+		MixFallbackHosts: fmt.Sprintf("127.0.0.1:%d", backupMixPort),
+		MixToken:         serverToken,
+		User:             "host-failback",
+		LoginFailExit:    lo.ToPtr(false),
+	}
+	clientCfg.Transport.DialServerTimeout = 2
+	require.NoError(t, clientCfg.Complete())
+
+	clientSvc, err := clientpkg.NewService(clientpkg.ServiceOptions{
+		Common:                 clientCfg,
+		ConfigSourceAggregator: source.NewAggregator(source.NewConfigSource()),
+	})
+	require.NoError(t, err)
+
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+	defer clientCancel()
+	go clientSvc.Run(clientCtx)
+
+	waitForOnlineProtocol(t, backupSvc, "host-failback", "tcp", 20*time.Second)
+	require.Equal(t, "tcp", clientSvc.StatusExporter().SelectedProtocol())
+
+	primarySvc, _ := startMixServerOnPort(t, serverToken, primaryMixPort)
+	waitForOnlineProtocol(t, primarySvc, "host-failback", "tcp", 20*time.Second)
 	require.Equal(t, "tcp", clientSvc.StatusExporter().SelectedProtocol())
 }
 

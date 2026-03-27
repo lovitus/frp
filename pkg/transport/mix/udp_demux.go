@@ -58,6 +58,20 @@ func (c *demuxPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return c.parent.conn.WriteTo(p, addr)
 }
 
+func (c *demuxPacketConn) enqueue(pkt packet) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.ch <- pkt:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *demuxPacketConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -147,10 +161,7 @@ func (d *UDPDemux) Serve() error {
 			data: append([]byte(nil), buf[:n]...),
 			addr: addr,
 		}
-		select {
-		case child.ch <- pkt:
-		default:
-		}
+		_ = child.enqueue(pkt)
 	}
 }
 

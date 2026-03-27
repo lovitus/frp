@@ -26,7 +26,8 @@ go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./se
 1. Merge the desired `dev` state into `master`.
 2. Update `pkg/util/version/version.go` if the binary version needs to change.
 3. Update `Release.md` with curated highlights, compatibility notes, and operational guidance.
-4. Create and push an annotated tag. A green branch CI run alone does not create a GitHub Release; only a pushed `v*` tag triggers the package and publish jobs.
+4. Ensure the working tree is clean and the previous tag you plan to supersede is not being reused.
+5. Create and push an annotated tag. A green branch CI run alone does not create a GitHub Release; only a pushed `v*` tag triggers the package and publish jobs.
 
 ```bash
 git checkout master
@@ -35,7 +36,7 @@ git tag -a vX.Y.Z-mix.N -m "release vX.Y.Z-mix.N"
 git push origin vX.Y.Z-mix.N
 ```
 
-Use a monotonically increasing fork tag such as `v0.68.1-mix.3` so generated changelogs compare cleanly against the previous fork release.
+Use a monotonically increasing fork tag such as `v0.68.1-mix.4` so generated changelogs compare cleanly against the previous fork release and you never need to retag an existing release.
 
 ## What GitHub Actions Do On Tag Push
 

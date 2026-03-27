@@ -751,15 +751,21 @@ func requireNoError(t *testing.T, err error) {
 func reserveDualStackPort(t *testing.T) (int, func()) {
 	t.Helper()
 
-	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
-	requireNoError(t, err)
-	port := tcpLn.Addr().(*net.TCPAddr).Port
+	for range 32 {
+		tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+		requireNoError(t, err)
+		port := tcpLn.Addr().(*net.TCPAddr).Port
 
-	udpConn, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
-	requireNoError(t, err)
-
-	return port, func() {
-		_ = udpConn.Close()
+		udpConn, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			return port, func() {
+				_ = udpConn.Close()
+				_ = tcpLn.Close()
+			}
+		}
 		_ = tcpLn.Close()
 	}
+
+	t.Fatal("failed to reserve a TCP/UDP port pair")
+	return 0, nil
 }

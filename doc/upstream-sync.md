@@ -53,6 +53,8 @@ When upstream changes, check these areas first:
 - `pkg/config/v1/*`
 - `pkg/config/v1/validation/*`
 - `pkg/msg/msg.go`
+- `README.md` and `README_zh.md`
+- `conf/frpc_full_example.toml` and `conf/frps_full_example.toml`
 - `conf/frpc_mix_example.toml`
 - `doc/mix.md`
 - `.github/workflows/*`
@@ -66,7 +68,9 @@ Those files carry most of the mix transport, observability, and release automati
 - Re-check `mixFallbackHosts` parsing and alias loading if upstream changes client config loading, strict validation, or TOML field names.
 - Re-run `./hack/run-mix-bench.sh` after resolving conflicts in client/server mix code.
 - Re-run `go test ./pkg/config/... ./client/...` after resolving config or client merge conflicts so host fallback ordering and failback tests still pass.
+- Re-run `go test -run 'TestMix' ./server` after changing mix listeners, protocol demux, or endpoint fallback behavior.
 - Re-check `Release.md`, `doc/mix.md`, `doc/mix_benchmark_results.md`, and workflow files after sync if upstream changed packaging or release behavior.
+- Re-check `README.md`, `README_zh.md`, and the full example TOML files so user-facing docs still match the actual mix parser and retry model.
 
 ## Long-Term Maintainer Checklist
 

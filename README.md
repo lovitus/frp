@@ -154,6 +154,37 @@ Current fork-maintainer documents for the new mix transport and release flow:
 - `doc/upstream-sync.md`
 - `doc/agents/release.md`
 
+## Fork Notes: Mix Transport
+
+This fork adds `mix`, a high-level transport selector for the frpc <-> frps control connection.
+
+The shared server/client fields are:
+
+```toml
+mixBindPort = 7000
+mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
+```
+
+`frpc` treats `mixToken` as an ordered priority list. `frps` treats the same list as the set of enabled transports on the shared mix port.
+
+This fork also adds optional client-only endpoint fallback:
+
+```toml
+serverAddr = "primary.example.com"
+mixBindPort = 7000
+mixFallbackHosts = "backup-a.example.com,backup-b.example.com:7002"
+mixToken = "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://user:sshpass"
+```
+
+With `mixFallbackHosts`, the client expands its retry and failback order as `endpoint × protocol`, wraps when the last candidate also fails, and probes back toward the earliest healthy candidate when operating on a lower-priority one.
+
+Operator and maintainer docs:
+
+- behavior, config, limits: `doc/mix.md`
+- benchmark harness and latest results: `doc/mix_benchmark_results.md`
+- upstream merge workflow and conflict hotspots: `doc/upstream-sync.md`
+- fork release process and tag-driven GitHub Releases: `doc/agents/release.md`
+
 ## Architecture
 
 ![architecture](/doc/pic/architecture.png)

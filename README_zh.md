@@ -96,6 +96,37 @@ v2 的构想是基于我多年在云原生领域，特别是在 K8s 和 ServiceM
 * `doc/upstream-sync.md`
 * `doc/agents/release.md`
 
+## Fork 说明：Mix 传输
+
+这个 fork 新增了 `mix`，它是 frpc <-> frps 控制连接之上的高层复合传输选择器。
+
+服务端与客户端共用的核心字段是：
+
+```toml
+mixBindPort = 7000
+mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
+```
+
+`frpc` 会把 `mixToken` 当作有顺序的优先级列表；`frps` 会把同一份配置当作共享 mix 端口上启用的协议集合。
+
+这个 fork 还增加了仅客户端使用的主机回退：
+
+```toml
+serverAddr = "primary.example.com"
+mixBindPort = 7000
+mixFallbackHosts = "backup-a.example.com,backup-b.example.com:7002"
+mixToken = "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://user:sshpass"
+```
+
+启用 `mixFallbackHosts` 后，客户端的重试和回切优先级会扩展成 `endpoint × protocol` 的扁平候选队列；最后一个候选持续失败时会重新回到队列开头；当前落在低优先级候选上时，会继续向前探测并回切到更优的可用候选。
+
+运维和维护文档：
+
+* 行为、配置和限制：`doc/mix.md`
+* 压测入口和最新结果：`doc/mix_benchmark_results.md`
+* 上游同步与冲突热点：`doc/upstream-sync.md`
+* fork 的发版流程与 tag 驱动 release：`doc/agents/release.md`
+
 ## 文档
 
 完整文档已经迁移至 [https://gofrp.org](https://gofrp.org)。
