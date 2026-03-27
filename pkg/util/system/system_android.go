@@ -15,20 +15,14 @@
 package system
 
 import (
-	"context"
-	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
-
-	netpkg "github.com/fatedier/frp/pkg/util/net"
 )
 
 func EnableCompatibilityMode() {
 	fixTimezone()
-	fixDNSResolver()
+	fixRestrictedDNSResolver()
 }
 
 // fixTimezone is used to try our best to fix timezone issue on some Android devices.
@@ -42,51 +36,4 @@ func fixTimezone() {
 		return
 	}
 	time.Local = loc
-}
-
-// fixDNSResolver first checks whether the default resolver is already usable.
-// If it is not, it tries to discover Android / Termux nameservers from resolv.conf-like files
-// and falls back to well-known public DNS servers. This avoids depending on a local :53 listener.
-func fixDNSResolver() {
-	if isTermuxLike() {
-		installAndroidDNSFallback()
-		return
-	}
-
-	// First, we attempt to resolve a domain. If resolution is successful, no modifications are necessary.
-	// In real-world scenarios, users may have already configured /etc/resolv.conf, or compiled directly
-	// in the Android environment instead of using cross-platform compilation, so this issue does not arise.
-	if net.DefaultResolver != nil {
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_, err := net.DefaultResolver.LookupHost(timeoutCtx, "google.com")
-		if err == nil {
-			return
-		}
-	}
-
-	installAndroidDNSFallback()
-}
-
-func installAndroidDNSFallback() {
-	servers := discoverAndroidDNSServers()
-	if len(servers) == 0 {
-		servers = []string{"8.8.8.8:53", "1.1.1.1:53"}
-	}
-	_ = netpkg.SetDefaultDNSServers(servers)
-}
-
-func isTermuxLike() bool {
-	if os.Getenv("TERMUX_VERSION") != "" {
-		return true
-	}
-	return strings.HasPrefix(strings.TrimSpace(os.Getenv("PREFIX")), "/data/data/com.termux")
-}
-
-func discoverAndroidDNSServers() []string {
-	paths := []string{"/etc/resolv.conf"}
-	if prefix := strings.TrimSpace(os.Getenv("PREFIX")); prefix != "" {
-		paths = append(paths, filepath.Join(prefix, "etc", "resolv.conf"))
-	}
-	return netpkg.ParseResolvConfPaths(paths...)
 }
