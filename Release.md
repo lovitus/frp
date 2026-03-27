@@ -12,6 +12,7 @@ This release introduces the new `mix` transport selector for frpc/frps and ships
 * Added `selectedProtocol` reporting to client status, server client registry, dashboard APIs, logs, and Prometheus server metrics.
 * Added example configs, transport documentation, integration tests, and repeatable benchmark scripts for mix.
 * Fixed mix startup retry behavior so initial authentication failures no longer exit the client, and an all-failing candidate list keeps cycling instead of stalling on the last protocol.
+* Added ordered client-side host fallback via `mixFallbackHosts`, expanding the retry / failback priority space from `protocols[]` to `endpoint × protocol` candidates.
 
 ## Protocol and Runtime Notes
 

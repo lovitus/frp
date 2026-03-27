@@ -31,9 +31,11 @@ go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./se
 ```bash
 git checkout master
 git pull origin master
-git tag -a v0.68.1-mix.1 -m "release v0.68.1-mix.1"
-git push origin v0.68.1-mix.1
+git tag -a vX.Y.Z-mix.N -m "release vX.Y.Z-mix.N"
+git push origin vX.Y.Z-mix.N
 ```
+
+Use a monotonically increasing fork tag such as `v0.68.1-mix.3` so generated changelogs compare cleanly against the previous fork release.
 
 ## What GitHub Actions Do On Tag Push
 

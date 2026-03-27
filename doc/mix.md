@@ -23,6 +23,7 @@ mixToken = "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://user:sshpass"
 ```
 
 `mixFallbackHosts` is ordered. Each entry is `HOST` or `HOST:PORT`. If `PORT` is omitted, `mixBindPort` is used.
+The host values in the example above are illustrative only. There are no built-in fallback endpoints in the client.
 
 Supported token forms:
 
@@ -41,6 +42,7 @@ tcp://PASSWORD
 - If `mixFallbackHosts` is configured, the client expands the dial order as `primary host × protocols`, then `fallback host #1 × protocols`, then `fallback host #2 × protocols`, and so on.
 - The server listens on `mixBindPort/tcp` and `mixBindPort/udp`.
 - Selected transport is exported in login metadata, logs, dashboard client status, and Prometheus server metrics.
+- Client logs include both the selected protocol and the selected endpoint when host fallback is in use.
 - Fallback waits for three consecutive failures before advancing to the next transport.
 - When the last configured candidate also keeps failing, fallback wraps to the first configured candidate and continues cycling instead of exiting.
 - Failback probes higher-priority transports periodically when the active transport is not the first one in the list.
@@ -72,6 +74,7 @@ The client and server emit mix-specific logs for:
 - `mix` keeps the existing single-control-connection model. Fallback and failback allow a short interruption.
 - TCP raw `mix` auth uses an explicit magic prefix, so raw TCP is matched before Shadowsocks decryption when that prefix is present.
 - The server exposes `frp_server_client_selected_protocol_counts{selected_protocol="..."}` for online clients grouped by active transport.
+- Host-level fallback is currently a client-side extension. The server still only needs the same `mixBindPort` and `mixToken` transport configuration.
 
 ## Related Docs
 
