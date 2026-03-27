@@ -43,7 +43,9 @@ func TokenMagicLen() int {
 
 func ReadAndVerifyToken(conn net.Conn, expectedProtocol, expectedPassword string) error {
 	_ = conn.SetReadDeadline(time.Now().Add(authReadTimeout))
-	defer conn.SetReadDeadline(time.Time{})
+	defer func() {
+		_ = conn.SetReadDeadline(time.Time{})
+	}()
 
 	magic := make([]byte, len(authMagic))
 	if _, err := io.ReadFull(conn, magic); err != nil {
@@ -83,14 +85,18 @@ func ReadAndVerifyToken(conn net.Conn, expectedProtocol, expectedPassword string
 
 func WriteTokenAck(conn net.Conn) error {
 	_ = conn.SetWriteDeadline(time.Now().Add(authReadTimeout))
-	defer conn.SetWriteDeadline(time.Time{})
+	defer func() {
+		_ = conn.SetWriteDeadline(time.Time{})
+	}()
 	_, err := conn.Write([]byte{authAckByte})
 	return err
 }
 
 func ReadTokenAck(conn net.Conn) error {
 	_ = conn.SetReadDeadline(time.Now().Add(authReadTimeout))
-	defer conn.SetReadDeadline(time.Time{})
+	defer func() {
+		_ = conn.SetReadDeadline(time.Time{})
+	}()
 
 	var ack [1]byte
 	if _, err := io.ReadFull(conn, ack[:]); err != nil {

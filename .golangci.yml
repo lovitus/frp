@@ -66,6 +66,14 @@ linters:
       - maligned
       path: _test\.go$|^tests/|^samples/
     - linters:
+      - gosec
+      - lll
+      - modernize
+      - prealloc
+      - staticcheck
+      - unparam
+      path: _test\.go$
+    - linters:
       - revive
       - staticcheck
       text: use underscores in Go names

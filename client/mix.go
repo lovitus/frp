@@ -16,10 +16,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/net/websocket"
 
-	tmix "github.com/fatedier/frp/pkg/transport/mix"
-
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/transport"
+	tmix "github.com/fatedier/frp/pkg/transport/mix"
 	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/xlog"
@@ -157,7 +156,7 @@ func (m *MixConnectorManager) nextFailbackCandidates() (int, []mixProbeCandidate
 	m.probing = true
 	base := m.activeIndex
 	out := make([]mixProbeCandidate, 0, base)
-	for i := 0; i < base; i++ {
+	for i := range base {
 		out = append(out, mixProbeCandidate{
 			Index:    i,
 			Protocol: m.protocols[i],

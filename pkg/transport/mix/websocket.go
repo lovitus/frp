@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
-	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"golang.org/x/net/websocket"
+
+	netpkg "github.com/fatedier/frp/pkg/util/net"
 )
 
 type singleConnListener struct {

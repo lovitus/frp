@@ -17,17 +17,11 @@ type SSHChannelConn struct {
 	remoteAddr net.Addr
 }
 
-func (c *SSHChannelConn) LocalAddr() net.Addr  { return c.localAddr }
-func (c *SSHChannelConn) RemoteAddr() net.Addr { return c.remoteAddr }
-func (c *SSHChannelConn) SetDeadline(time.Time) error {
-	return nil
-}
-func (c *SSHChannelConn) SetReadDeadline(time.Time) error {
-	return nil
-}
-func (c *SSHChannelConn) SetWriteDeadline(time.Time) error {
-	return nil
-}
+func (c *SSHChannelConn) LocalAddr() net.Addr              { return c.localAddr }
+func (c *SSHChannelConn) RemoteAddr() net.Addr             { return c.remoteAddr }
+func (c *SSHChannelConn) SetDeadline(time.Time) error      { return nil }
+func (c *SSHChannelConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *SSHChannelConn) SetWriteDeadline(time.Time) error { return nil }
 
 func NewSSHServerConfig(username, password string, signer ssh.Signer) *ssh.ServerConfig {
 	cfg := &ssh.ServerConfig{
@@ -55,8 +49,9 @@ func DialSSH(ctx context.Context, address, username, password string, timeout ti
 		return nil, nil, err
 	}
 	cfg := &ssh.ClientConfig{
-		User:            username,
-		Auth:            []ssh.AuthMethod{ssh.Password(password)},
+		User: username,
+		Auth: []ssh.AuthMethod{ssh.Password(password)},
+		//nolint:gosec // mix uses an ephemeral server host key generated per frps process; transport auth is handled separately.
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         timeout,
 	}
@@ -76,8 +71,8 @@ func OpenSSHChannel(client *ssh.Client) (net.Conn, error) {
 	go ssh.DiscardRequests(reqs)
 	return &SSHChannelConn{
 		Channel:    ch,
-		localAddr:  client.Conn.LocalAddr(),
-		remoteAddr: client.Conn.RemoteAddr(),
+		localAddr:  client.LocalAddr(),
+		remoteAddr: client.RemoteAddr(),
 	}, nil
 }
 
