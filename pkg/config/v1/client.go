@@ -56,6 +56,11 @@ type ClientCommonConfig struct {
 	MixToken string `json:"mixToken,omitempty"`
 	// MixTokenLegacy accepts snake_case config.
 	MixTokenLegacy string `json:"mix_token,omitempty"`
+	// MixFallbackHosts is an ordered list of fallback hosts for mix dialing.
+	// Each entry is HOST or HOST:PORT. If PORT is omitted, MixBindPort is used.
+	MixFallbackHosts string `json:"mixFallbackHosts,omitempty"`
+	// MixFallbackHostsLegacy accepts snake_case config.
+	MixFallbackHostsLegacy string `json:"mix_fallback_hosts,omitempty"`
 	// STUN server to help penetrate NAT hole.
 	NatHoleSTUNServer string `json:"natHoleStunServer,omitempty"`
 	// DNSServer specifies a DNS server address for FRPC to use. If this value
@@ -98,6 +103,9 @@ func (c *ClientCommonConfig) Complete() error {
 	}
 	if c.MixToken == "" {
 		c.MixToken = c.MixTokenLegacy
+	}
+	if c.MixFallbackHosts == "" {
+		c.MixFallbackHosts = c.MixFallbackHostsLegacy
 	}
 	c.ServerAddr = util.EmptyOr(c.ServerAddr, "0.0.0.0")
 	c.ServerPort = util.EmptyOr(c.ServerPort, 7000)

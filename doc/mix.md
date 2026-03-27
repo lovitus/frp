@@ -13,6 +13,17 @@ mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,
 
 The server treats `mixToken` as an unordered set of enabled transports. The client treats the same list as an ordered priority list.
 
+Optional client-only host fallback can extend the priority list across multiple frps endpoints:
+
+```toml
+serverAddr = "10.20.0.64"
+mixBindPort = 7001
+mixFallbackHosts = "10.20.0.65,kr.goodfood.com:7002,[2401:c080:1c02:aaf:5400:4ff:fe78:d01f]:7007"
+mixToken = "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://user:sshpass"
+```
+
+`mixFallbackHosts` is ordered. Each entry is `HOST` or `HOST:PORT`. If `PORT` is omitted, `mixBindPort` is used.
+
 Supported token forms:
 
 ```text
@@ -27,10 +38,11 @@ tcp://PASSWORD
 ## Runtime Behavior
 
 - The client tries transports in the order listed in `mixToken`.
+- If `mixFallbackHosts` is configured, the client expands the dial order as `primary host × protocols`, then `fallback host #1 × protocols`, then `fallback host #2 × protocols`, and so on.
 - The server listens on `mixBindPort/tcp` and `mixBindPort/udp`.
 - Selected transport is exported in login metadata, logs, dashboard client status, and Prometheus server metrics.
 - Fallback waits for three consecutive failures before advancing to the next transport.
-- When the last configured transport also keeps failing, fallback wraps to the first configured transport and continues cycling instead of exiting.
+- When the last configured candidate also keeps failing, fallback wraps to the first configured candidate and continues cycling instead of exiting.
 - Failback probes higher-priority transports periodically when the active transport is not the first one in the list.
 - When `mix` is enabled, the initial `loginFailExit` behavior is ignored so startup can keep retrying across protocols.
 

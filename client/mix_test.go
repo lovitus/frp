@@ -12,7 +12,21 @@ import (
 func newTestMixManager(t *testing.T) *MixConnectorManager {
 	t.Helper()
 	manager, err := NewMixConnectorManager(&v1.ClientCommonConfig{
-		MixToken: "kcp://kcppass,quic://quicpass,tcp://tcppass",
+		ServerAddr:  "primary.example.com",
+		MixBindPort: 7000,
+		MixToken:    "kcp://kcppass,quic://quicpass,tcp://tcppass",
+	})
+	require.NoError(t, err)
+	return manager
+}
+
+func newHostFallbackMixManager(t *testing.T) *MixConnectorManager {
+	t.Helper()
+	manager, err := NewMixConnectorManager(&v1.ClientCommonConfig{
+		ServerAddr:       "10.20.0.64",
+		MixBindPort:      7001,
+		MixFallbackHosts: "10.20.0.65,kr.goodfood.com:7002",
+		MixToken:         "kcp://kcppass,ss://aes-256-gcm:sspass",
 	})
 	require.NoError(t, err)
 	return manager
@@ -32,7 +46,7 @@ func TestMixManagerFallbackAfterThreeFailures(t *testing.T) {
 	failCount, fallback = manager.recordDialFailure(0)
 	require.Equal(t, mixFallbackThreshold, failCount)
 	require.NotNil(t, fallback)
-	require.Equal(t, v1.MixProtocolQUIC, fallback.Protocol)
+	require.Equal(t, v1.MixProtocolQUIC, fallback.Protocol.Protocol)
 	require.Equal(t, 1, manager.CurrentActiveIndex())
 }
 
@@ -58,7 +72,7 @@ func TestMixManagerFallbackImmediatelyTargetsNextProtocol(t *testing.T) {
 
 	index, entry, waitFor := manager.prepareDial()
 	require.Equal(t, 1, index)
-	require.Equal(t, v1.MixProtocolQUIC, entry.Protocol)
+	require.Equal(t, v1.MixProtocolQUIC, entry.Protocol.Protocol)
 	require.Zero(t, waitFor)
 }
 
@@ -80,8 +94,22 @@ func TestMixManagerFallbackWrapsToFirstProtocol(t *testing.T) {
 	failCount, fallback = manager.recordDialFailure(2)
 	require.Equal(t, mixFallbackThreshold, failCount)
 	require.NotNil(t, fallback)
-	require.Equal(t, v1.MixProtocolKCP, fallback.Protocol)
+	require.Equal(t, v1.MixProtocolKCP, fallback.Protocol.Protocol)
 	require.Equal(t, 0, manager.CurrentActiveIndex())
+}
+
+func TestMixManagerBuildsHostAndProtocolCandidateOrder(t *testing.T) {
+	manager := newHostFallbackMixManager(t)
+
+	require.Len(t, manager.candidates, 6)
+	require.Equal(t, "10.20.0.64:7001", manager.candidates[0].Address())
+	require.Equal(t, v1.MixProtocolKCP, manager.candidates[0].Protocol.Protocol)
+	require.Equal(t, "10.20.0.64:7001", manager.candidates[1].Address())
+	require.Equal(t, v1.MixProtocolSS, manager.candidates[1].Protocol.Protocol)
+	require.Equal(t, "10.20.0.65:7001", manager.candidates[2].Address())
+	require.Equal(t, v1.MixProtocolKCP, manager.candidates[2].Protocol.Protocol)
+	require.Equal(t, "kr.goodfood.com:7002", manager.candidates[5].Address())
+	require.Equal(t, v1.MixProtocolSS, manager.candidates[5].Protocol.Protocol)
 }
 
 func TestMixManagerFailbackCandidates(t *testing.T) {
@@ -102,7 +130,30 @@ func TestMixManagerFailbackCandidates(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 1, baseIndex)
 	require.Len(t, candidates, 1)
-	require.Equal(t, v1.MixProtocolKCP, candidates[0].Protocol.Protocol)
+	require.Equal(t, v1.MixProtocolKCP, candidates[0].Candidate.Protocol.Protocol)
+}
+
+func TestMixManagerFailbackCandidatesCoverEarlierHostsAndProtocols(t *testing.T) {
+	manager := newHostFallbackMixManager(t)
+	manager.mu.Lock()
+	manager.activeIndex = 5
+	manager.lastSwitchTime = time.Now().Add(-mixFailbackInterval)
+	manager.mu.Unlock()
+
+	baseIndex, candidates, ok := manager.nextFailbackCandidates()
+	require.True(t, ok)
+	require.Equal(t, 5, baseIndex)
+	require.Len(t, candidates, 5)
+	require.Equal(t, "10.20.0.64:7001", candidates[0].Candidate.Address())
+	require.Equal(t, v1.MixProtocolKCP, candidates[0].Candidate.Protocol.Protocol)
+	require.Equal(t, "10.20.0.64:7001", candidates[1].Candidate.Address())
+	require.Equal(t, v1.MixProtocolSS, candidates[1].Candidate.Protocol.Protocol)
+	require.Equal(t, "10.20.0.65:7001", candidates[2].Candidate.Address())
+	require.Equal(t, v1.MixProtocolKCP, candidates[2].Candidate.Protocol.Protocol)
+	require.Equal(t, "10.20.0.65:7001", candidates[3].Candidate.Address())
+	require.Equal(t, v1.MixProtocolSS, candidates[3].Candidate.Protocol.Protocol)
+	require.Equal(t, "kr.goodfood.com:7002", candidates[4].Candidate.Address())
+	require.Equal(t, v1.MixProtocolKCP, candidates[4].Candidate.Protocol.Protocol)
 }
 
 func TestMixManagerNoFailbackOnPrimary(t *testing.T) {
@@ -157,9 +208,20 @@ func TestSetMixTimingForTestingRestoresDefaults(t *testing.T) {
 }
 
 func TestBuildMixClientConfigSupportsSSH(t *testing.T) {
-	cfg, err := buildMixClientConfig(&v1.ClientCommonConfig{MixBindPort: 7000}, v1.MixProtocolConfig{
-		Protocol: v1.MixProtocolSSH,
+	cfg, err := buildMixClientConfig(&v1.ClientCommonConfig{
+		ServerAddr:  "primary.example.com",
+		MixBindPort: 7000,
+	}, mixDialCandidate{
+		Endpoint: v1.MixEndpointConfig{
+			Host: "backup.example.com",
+			Port: 7002,
+		},
+		Protocol: v1.MixProtocolConfig{
+			Protocol: v1.MixProtocolSSH,
+		},
 	})
 	require.NoError(t, err)
+	require.Equal(t, "backup.example.com", cfg.ServerAddr)
+	require.Equal(t, 7002, cfg.MixBindPort)
 	require.Equal(t, v1.MixProtocolSSH, cfg.Transport.Protocol)
 }

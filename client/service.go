@@ -419,7 +419,16 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 		selected := connectorWithProtocol.SelectedProtocol()
 		if selected != "" {
 			svr.setSelectedProtocol(selected)
-			xl.Infof("selected protocol [%s]", selected)
+			if connectorWithEndpoint, ok := connector.(interface{ SelectedEndpoint() string }); ok {
+				endpoint := connectorWithEndpoint.SelectedEndpoint()
+				if endpoint != "" {
+					xl.Infof("selected protocol [%s], selected endpoint [%s]", selected, endpoint)
+				} else {
+					xl.Infof("selected protocol [%s]", selected)
+				}
+			} else {
+				xl.Infof("selected protocol [%s]", selected)
+			}
 		}
 	}
 	if reporter, ok := connector.(mixLoginReporter); ok {
@@ -461,18 +470,21 @@ func (svr *Service) keepMixFailback() {
 		}
 
 		for _, candidate := range candidates {
-			xl.Infof("mix failback probe start, active protocol [%s], target protocol [%s]",
-				svr.mixManager.SelectedProtocol(), candidate.Protocol.Protocol)
+			xl.Infof("mix failback probe start, active protocol [%s], active endpoint [%s], target protocol [%s], target endpoint [%s]",
+				svr.mixManager.SelectedProtocol(), svr.mixManager.SelectedEndpoint(),
+				candidate.Candidate.Protocol.Protocol, candidate.Candidate.Address())
 			probeCtx, cancel := context.WithTimeout(svr.ctx, time.Duration(svr.common.Transport.DialServerTimeout)*time.Second)
-			err := probeMixProtocol(probeCtx, svr.common, candidate.Protocol)
+			err := probeMixProtocol(probeCtx, svr.common, candidate.Candidate)
 			cancel()
 			if err != nil {
-				xl.Warnf("mix failback probe fail, target protocol [%s], err: %v", candidate.Protocol.Protocol, err)
+				xl.Warnf("mix failback probe fail, target protocol [%s], target endpoint [%s], err: %v",
+					candidate.Candidate.Protocol.Protocol, candidate.Candidate.Address(), err)
 				continue
 			}
 
 			if svr.mixManager.switchToPreferred(baseIndex, candidate.Index) {
-				xl.Infof("mix failback switch start, target protocol [%s]", candidate.Protocol.Protocol)
+				xl.Infof("mix failback switch start, target protocol [%s], target endpoint [%s]",
+					candidate.Candidate.Protocol.Protocol, candidate.Candidate.Address())
 				switched = true
 				_ = ctl.Close()
 			}

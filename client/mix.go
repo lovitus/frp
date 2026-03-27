@@ -31,14 +31,23 @@ var (
 )
 
 type mixProbeCandidate struct {
-	Index    int
+	Index     int
+	Candidate mixDialCandidate
+}
+
+type mixDialCandidate struct {
+	Endpoint v1.MixEndpointConfig
 	Protocol v1.MixProtocolConfig
+}
+
+func (c mixDialCandidate) Address() string {
+	return c.Endpoint.Address()
 }
 
 type MixConnectorManager struct {
 	mu sync.Mutex
 
-	protocols []v1.MixProtocolConfig
+	candidates []mixDialCandidate
 
 	activeIndex    int
 	failCount      int
@@ -54,13 +63,28 @@ func NewMixConnectorManager(cfg *v1.ClientCommonConfig) (*MixConnectorManager, e
 	if err != nil {
 		return nil, err
 	}
+	endpoints, err := v1.BuildMixEndpoints(cfg.ServerAddr, cfg.MixBindPort, cfg.MixFallbackHosts)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]mixDialCandidate, 0, len(protocols)*len(endpoints))
+	endpointLabels := make([]string, 0, len(endpoints))
 	names := make([]string, 0, len(protocols))
 	for _, protocol := range protocols {
 		names = append(names, protocol.Protocol)
 	}
-	log.Infof("mix init, bind port [%d], protocols %v", cfg.MixBindPort, names)
+	for _, endpoint := range endpoints {
+		endpointLabels = append(endpointLabels, endpoint.Address())
+		for _, protocol := range protocols {
+			candidates = append(candidates, mixDialCandidate{
+				Endpoint: endpoint,
+				Protocol: protocol,
+			})
+		}
+	}
+	log.Infof("mix init, endpoints %v, protocols %v, candidate count [%d]", endpointLabels, names, len(candidates))
 	return &MixConnectorManager{
-		protocols: protocols,
+		candidates: candidates,
 	}, nil
 }
 
@@ -75,10 +99,19 @@ func (m *MixConnectorManager) NewConnector(ctx context.Context, cfg *v1.ClientCo
 func (m *MixConnectorManager) SelectedProtocol() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.protocols) == 0 {
+	if len(m.candidates) == 0 {
 		return ""
 	}
-	return m.protocols[m.activeIndex].Protocol
+	return m.candidates[m.activeIndex].Protocol.Protocol
+}
+
+func (m *MixConnectorManager) SelectedEndpoint() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.candidates) == 0 {
+		return ""
+	}
+	return m.candidates[m.activeIndex].Address()
 }
 
 func (m *MixConnectorManager) CurrentActiveIndex() int {
@@ -87,11 +120,11 @@ func (m *MixConnectorManager) CurrentActiveIndex() int {
 	return m.activeIndex
 }
 
-func (m *MixConnectorManager) prepareDial() (int, v1.MixProtocolConfig, time.Duration) {
+func (m *MixConnectorManager) prepareDial() (int, mixDialCandidate, time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	entry := m.protocols[m.activeIndex]
+	entry := m.candidates[m.activeIndex]
 	waitFor := time.Duration(0)
 	if !m.lastFailure.IsZero() {
 		next := m.lastFailure.Add(mixFallbackDelay)
@@ -120,7 +153,7 @@ func (m *MixConnectorManager) recordDialSuccess(index int) string {
 	return reason
 }
 
-func (m *MixConnectorManager) recordDialFailure(index int) (int, *v1.MixProtocolConfig) {
+func (m *MixConnectorManager) recordDialFailure(index int) (int, *mixDialCandidate) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -132,12 +165,12 @@ func (m *MixConnectorManager) recordDialFailure(index int) (int, *v1.MixProtocol
 	if m.failCount < mixFallbackThreshold {
 		return m.failCount, nil
 	}
-	if len(m.protocols) <= 1 {
+	if len(m.candidates) <= 1 {
 		return m.failCount, nil
 	}
 
 	nextIndex := index + 1
-	if nextIndex >= len(m.protocols) {
+	if nextIndex >= len(m.candidates) {
 		nextIndex = 0
 	}
 	m.activeIndex = nextIndex
@@ -146,7 +179,7 @@ func (m *MixConnectorManager) recordDialFailure(index int) (int, *v1.MixProtocol
 	m.lastSwitchTime = time.Now()
 	m.switching = true
 	m.switchReason = "fallback"
-	entry := m.protocols[m.activeIndex]
+	entry := m.candidates[m.activeIndex]
 	return mixFallbackThreshold, &entry
 }
 
@@ -165,8 +198,8 @@ func (m *MixConnectorManager) nextFailbackCandidates() (int, []mixProbeCandidate
 	out := make([]mixProbeCandidate, 0, base)
 	for i := range base {
 		out = append(out, mixProbeCandidate{
-			Index:    i,
-			Protocol: m.protocols[i],
+			Index:     i,
+			Candidate: m.candidates[i],
 		})
 	}
 	return base, out, true
@@ -225,15 +258,17 @@ type mixConnectorImpl struct {
 
 	inner            Connector
 	selectedProtocol string
+	selectedEndpoint string
 	activeIndex      int
 	resultReported   bool
 }
 
 func (c *mixConnectorImpl) Open() error {
 	xl := xlog.FromContextSafe(c.ctx)
-	index, protocol, waitFor := c.manager.prepareDial()
+	index, candidate, waitFor := c.manager.prepareDial()
 	if waitFor > 0 {
-		xl.Infof("mix protocol retry waiting for %s before dialing [%s]", waitFor.Round(time.Second), protocol.Protocol)
+		xl.Infof("mix protocol retry waiting for %s before dialing [%s] on [%s]",
+			waitFor.Round(time.Second), candidate.Protocol.Protocol, candidate.Address())
 		timer := time.NewTimer(waitFor)
 		defer timer.Stop()
 		select {
@@ -243,23 +278,27 @@ func (c *mixConnectorImpl) Open() error {
 		}
 	}
 
-	xl.Infof("mix protocol dial start, target protocol [%s], active index [%d]", protocol.Protocol, index)
-	inner, err := newMixProtocolConnector(c.ctx, c.cfg, protocol)
+	xl.Infof("mix protocol dial start, target protocol [%s], target endpoint [%s], active index [%d]",
+		candidate.Protocol.Protocol, candidate.Address(), index)
+	inner, err := newMixProtocolConnector(c.ctx, c.cfg, candidate)
 	if err != nil {
 		c.activeIndex = index
-		c.selectedProtocol = protocol.Protocol
+		c.selectedProtocol = candidate.Protocol.Protocol
+		c.selectedEndpoint = candidate.Address()
 		c.ReportLoginFailure(err)
 		return err
 	}
 	if err := inner.Open(); err != nil {
 		c.activeIndex = index
-		c.selectedProtocol = protocol.Protocol
+		c.selectedProtocol = candidate.Protocol.Protocol
+		c.selectedEndpoint = candidate.Address()
 		c.ReportLoginFailure(err)
 		return err
 	}
 	c.inner = inner
 	c.activeIndex = index
-	c.selectedProtocol = protocol.Protocol
+	c.selectedProtocol = candidate.Protocol.Protocol
+	c.selectedEndpoint = candidate.Address()
 	return nil
 }
 
@@ -286,6 +325,10 @@ func (c *mixConnectorImpl) SelectedProtocol() string {
 	return c.selectedProtocol
 }
 
+func (c *mixConnectorImpl) SelectedEndpoint() string {
+	return c.selectedEndpoint
+}
+
 func (c *mixConnectorImpl) ReportLoginSuccess() {
 	if c.resultReported {
 		return
@@ -295,9 +338,9 @@ func (c *mixConnectorImpl) ReportLoginSuccess() {
 	xl := xlog.FromContextSafe(c.ctx)
 	switch reason {
 	case "fallback":
-		xl.Infof("mix fallback success, active protocol [%s]", c.selectedProtocol)
+		xl.Infof("mix fallback success, active protocol [%s], active endpoint [%s]", c.selectedProtocol, c.selectedEndpoint)
 	case "failback":
-		xl.Infof("mix failback switch success, active protocol [%s]", c.selectedProtocol)
+		xl.Infof("mix failback switch success, active protocol [%s], active endpoint [%s]", c.selectedProtocol, c.selectedEndpoint)
 	}
 }
 
@@ -308,30 +351,34 @@ func (c *mixConnectorImpl) ReportLoginFailure(err error) {
 	c.resultReported = true
 	xl := xlog.FromContextSafe(c.ctx)
 	failCount, fallback := c.manager.recordDialFailure(c.activeIndex)
-	xl.Warnf("mix protocol dial fail, protocol [%s], fail count [%d], err: %v", c.selectedProtocol, failCount, err)
+	xl.Warnf("mix protocol dial fail, protocol [%s], endpoint [%s], fail count [%d], err: %v",
+		c.selectedProtocol, c.selectedEndpoint, failCount, err)
 	if fallback != nil {
-		xl.Warnf("mix fallback start, switch to protocol [%s]", fallback.Protocol)
+		xl.Warnf("mix fallback start, switch to protocol [%s] on endpoint [%s]",
+			fallback.Protocol.Protocol, fallback.Address())
 	}
 }
 
-func buildMixClientConfig(cfg *v1.ClientCommonConfig, protocol v1.MixProtocolConfig) (*v1.ClientCommonConfig, error) {
+func buildMixClientConfig(cfg *v1.ClientCommonConfig, candidate mixDialCandidate) (*v1.ClientCommonConfig, error) {
 	cloned := *cfg
-	cloned.ServerPort = cfg.MixBindPort
+	cloned.ServerAddr = candidate.Endpoint.Host
+	cloned.ServerPort = candidate.Endpoint.Port
+	cloned.MixBindPort = candidate.Endpoint.Port
 	cloned.Transport.TLS.Enable = lo.ToPtr(false)
-	switch protocol.Protocol {
+	switch candidate.Protocol.Protocol {
 	case v1.MixProtocolTCP, v1.MixProtocolKCP, v1.MixProtocolQUIC, v1.MixProtocolWSS, v1.MixProtocolSS, v1.MixProtocolSSH:
-		cloned.Transport.Protocol = protocol.Protocol
-		if protocol.Protocol == v1.MixProtocolWSS {
+		cloned.Transport.Protocol = candidate.Protocol.Protocol
+		if candidate.Protocol.Protocol == v1.MixProtocolWSS {
 			cloned.Transport.TLS.Enable = lo.ToPtr(true)
 		}
 	default:
-		return nil, fmt.Errorf("mix protocol %q is not implemented by the current client transport stack", protocol.Protocol)
+		return nil, fmt.Errorf("mix protocol %q is not implemented by the current client transport stack", candidate.Protocol.Protocol)
 	}
 	return &cloned, nil
 }
 
-func probeMixProtocol(ctx context.Context, cfg *v1.ClientCommonConfig, protocol v1.MixProtocolConfig) error {
-	connector, err := newMixProtocolConnector(ctx, cfg, protocol)
+func probeMixProtocol(ctx context.Context, cfg *v1.ClientCommonConfig, candidate mixDialCandidate) error {
+	connector, err := newMixProtocolConnector(ctx, cfg, candidate)
 	if err != nil {
 		return err
 	}
@@ -346,16 +393,21 @@ func probeMixProtocol(ctx context.Context, cfg *v1.ClientCommonConfig, protocol 
 	return conn.Close()
 }
 
-func newMixProtocolConnector(ctx context.Context, cfg *v1.ClientCommonConfig, protocol v1.MixProtocolConfig) (Connector, error) {
+func newMixProtocolConnector(ctx context.Context, cfg *v1.ClientCommonConfig, candidate mixDialCandidate) (Connector, error) {
+	clientCfg, err := buildMixClientConfig(cfg, candidate)
+	if err != nil {
+		return nil, err
+	}
+	protocol := candidate.Protocol
 	switch protocol.Protocol {
 	case v1.MixProtocolTCP, v1.MixProtocolKCP, v1.MixProtocolWSS:
-		return newMixTokenConnector(ctx, cfg, protocol), nil
+		return newMixTokenConnector(ctx, clientCfg, protocol), nil
 	case v1.MixProtocolQUIC:
-		return newMixQUICConnector(ctx, cfg, protocol), nil
+		return newMixQUICConnector(ctx, clientCfg, protocol), nil
 	case v1.MixProtocolSS:
-		return newMixSSConnector(ctx, cfg, protocol), nil
+		return newMixSSConnector(ctx, clientCfg, protocol), nil
 	case v1.MixProtocolSSH:
-		return newMixSSHConnector(ctx, cfg, protocol), nil
+		return newMixSSHConnector(ctx, clientCfg, protocol), nil
 	default:
 		return nil, fmt.Errorf("unsupported mix protocol %q", protocol.Protocol)
 	}

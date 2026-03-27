@@ -100,9 +100,15 @@ func TestRunDoesNotExitOnInitialLoginFailureWhenMixEnabled(t *testing.T) {
 	}
 
 	svr.mixManager = &MixConnectorManager{
-		protocols: []v1.MixProtocolConfig{
-			{Protocol: v1.MixProtocolSSH},
-			{Protocol: v1.MixProtocolKCP},
+		candidates: []mixDialCandidate{
+			{
+				Endpoint: v1.MixEndpointConfig{Host: "primary.example.com", Port: 7000},
+				Protocol: v1.MixProtocolConfig{Protocol: v1.MixProtocolSSH},
+			},
+			{
+				Endpoint: v1.MixEndpointConfig{Host: "primary.example.com", Port: 7000},
+				Protocol: v1.MixProtocolConfig{Protocol: v1.MixProtocolKCP},
+			},
 		},
 	}
 

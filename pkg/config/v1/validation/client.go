@@ -67,6 +67,10 @@ func validateClientMixConfig(c *v1.ClientCommonConfig) error {
 		_, err := v1.ParseMixToken(c.MixToken)
 		errs = AppendError(errs, err)
 	}
+	if c.MixFallbackHosts != "" {
+		_, err := v1.ParseMixFallbackHosts(c.MixFallbackHosts, c.MixBindPort)
+		errs = AppendError(errs, err)
+	}
 	return errs
 }
 
