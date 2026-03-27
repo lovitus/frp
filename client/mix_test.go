@@ -62,6 +62,28 @@ func TestMixManagerFallbackImmediatelyTargetsNextProtocol(t *testing.T) {
 	require.Zero(t, waitFor)
 }
 
+func TestMixManagerFallbackWrapsToFirstProtocol(t *testing.T) {
+	manager := newTestMixManager(t)
+
+	manager.mu.Lock()
+	manager.activeIndex = 2
+	manager.mu.Unlock()
+
+	failCount, fallback := manager.recordDialFailure(2)
+	require.Equal(t, 1, failCount)
+	require.Nil(t, fallback)
+
+	failCount, fallback = manager.recordDialFailure(2)
+	require.Equal(t, 2, failCount)
+	require.Nil(t, fallback)
+
+	failCount, fallback = manager.recordDialFailure(2)
+	require.Equal(t, mixFallbackThreshold, failCount)
+	require.NotNil(t, fallback)
+	require.Equal(t, v1.MixProtocolKCP, fallback.Protocol)
+	require.Equal(t, 0, manager.CurrentActiveIndex())
+}
+
 func TestMixManagerFailbackCandidates(t *testing.T) {
 	manager := newTestMixManager(t)
 	_, fallback := manager.recordDialFailure(0)

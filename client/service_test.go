@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/samber/lo"
 
@@ -80,6 +81,55 @@ func TestRunStopsStartedComponentsOnInitialLoginFailure(t *testing.T) {
 		t.Fatalf("expected admin port to be released: %v", err)
 	}
 	_ = ln.Close()
+}
+
+func TestRunDoesNotExitOnInitialLoginFailureWhenMixEnabled(t *testing.T) {
+	agg := source.NewAggregator(source.NewConfigSource())
+
+	svr, err := NewService(ServiceOptions{
+		Common: &v1.ClientCommonConfig{
+			LoginFailExit: lo.ToPtr(true),
+		},
+		ConfigSourceAggregator: agg,
+		ConnectorCreator: func(context.Context, *v1.ClientCommonConfig) Connector {
+			return &failingConnector{err: errors.New("login boom")}
+		},
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	svr.mixManager = &MixConnectorManager{
+		protocols: []v1.MixProtocolConfig{
+			{Protocol: v1.MixProtocolSSH},
+			{Protocol: v1.MixProtocolKCP},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- svr.Run(ctx)
+	}()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("service returned early on initial mix login failure: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after cancel, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("service did not stop after cancel")
+	}
 }
 
 func TestNewServiceDoesNotLeakAdminListenerOnAuthBuildFailure(t *testing.T) {

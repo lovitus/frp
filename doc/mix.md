@@ -30,7 +30,9 @@ tcp://PASSWORD
 - The server listens on `mixBindPort/tcp` and `mixBindPort/udp`.
 - Selected transport is exported in login metadata, logs, dashboard client status, and Prometheus server metrics.
 - Fallback waits for three consecutive failures before advancing to the next transport.
+- When the last configured transport also keeps failing, fallback wraps to the first configured transport and continues cycling instead of exiting.
 - Failback probes higher-priority transports periodically when the active transport is not the first one in the list.
+- When `mix` is enabled, the initial `loginFailExit` behavior is ignored so startup can keep retrying across protocols.
 
 ## Logging
 

@@ -275,12 +275,23 @@ func (svr *Service) Run(ctx context.Context) error {
 	}
 
 	// first login to frps
-	svr.loopLoginUntilSuccess(10*time.Second, lo.FromPtr(svr.common.LoginFailExit))
+	firstLoginExit := lo.FromPtr(svr.common.LoginFailExit)
+	if svr.mixManager != nil && firstLoginExit {
+		log.Infof("mix is enabled, loginFailExit is ignored so fallback can continue across protocols")
+		firstLoginExit = false
+	}
+	svr.loopLoginUntilSuccess(10*time.Second, firstLoginExit)
 	if svr.ctl == nil {
-		cancelCause := cancelErr{}
-		_ = errors.As(context.Cause(svr.ctx), &cancelCause)
 		svr.stop()
-		return fmt.Errorf("login to the server failed: %v. With loginFailExit enabled, no additional retries will be attempted", cancelCause.Err)
+		cause := context.Cause(svr.ctx)
+		cancelCause := cancelErr{}
+		if errors.As(cause, &cancelCause) {
+			return fmt.Errorf("login to the server failed: %v. With loginFailExit enabled, no additional retries will be attempted", cancelCause.Err)
+		}
+		if cause == nil || errors.Is(cause, context.Canceled) {
+			return nil
+		}
+		return cause
 	}
 
 	go svr.keepControllerWorking()

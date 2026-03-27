@@ -129,11 +129,18 @@ func (m *MixConnectorManager) recordDialFailure(index int) (int, *v1.MixProtocol
 	}
 	m.failCount++
 	m.lastFailure = time.Now()
-	if m.failCount < mixFallbackThreshold || index+1 >= len(m.protocols) {
+	if m.failCount < mixFallbackThreshold {
+		return m.failCount, nil
+	}
+	if len(m.protocols) <= 1 {
 		return m.failCount, nil
 	}
 
-	m.activeIndex = index + 1
+	nextIndex := index + 1
+	if nextIndex >= len(m.protocols) {
+		nextIndex = 0
+	}
+	m.activeIndex = nextIndex
 	m.failCount = 0
 	m.lastFailure = time.Time{}
 	m.lastSwitchTime = time.Now()
