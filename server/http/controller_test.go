@@ -439,3 +439,63 @@ func TestAPIGatewayTunnelImportRejectsEmptyList(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "no gateway tunnels found in yaml", httpErr.Error())
 }
+
+func TestAPIGatewayTunnelImportIsIdempotentOnRepeatedImport(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	key := registerClient(t, reg, "client-a", "run-a", true)
+	manager := newStubGatewayTunnelManager()
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+
+	rawYAML := `version: 1
+tunnels:
+  - name: ssh-main
+    protocol: tcp
+    bindAddr: 0.0.0.0
+    listenPort: 6000
+    clientKey: ` + key + `
+    targetHost: 127.0.0.1
+    targetPort: 22
+`
+	body, err := json.Marshal(map[string]string{"yaml": rawYAML})
+	require.NoError(t, err)
+
+	firstResp, err := controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+	firstResult := firstResp.(gatewayTunnelImportResponse)
+	require.Equal(t, 1, firstResult.Total)
+	require.Equal(t, 1, firstResult.Created)
+	require.Equal(t, 0, firstResult.Updated)
+
+	secondResp, err := controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+	secondResult := secondResp.(gatewayTunnelImportResponse)
+	require.Equal(t, 1, secondResult.Total)
+	require.Equal(t, 0, secondResult.Created)
+	require.Equal(t, 1, secondResult.Updated)
+}
+
+func TestAPIGatewayTunnelImportAllowsUnknownClientKey(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	manager := newStubGatewayTunnelManager()
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+
+	rawYAML := `version: 1
+tunnels:
+  - name: ssh-main
+    protocol: tcp
+    bindAddr: 0.0.0.0
+    listenPort: 6000
+    clientKey: user.client-offline
+    targetHost: 127.0.0.1
+    targetPort: 22
+`
+	body, err := json.Marshal(map[string]string{"yaml": rawYAML})
+	require.NoError(t, err)
+
+	resp, err := controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+	result := resp.(gatewayTunnelImportResponse)
+	require.Equal(t, 1, result.Total)
+	require.Equal(t, 1, result.Created)
+	require.Equal(t, 0, result.Updated)
+}

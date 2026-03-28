@@ -30,6 +30,7 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Updated the Gateway stats card so `online / registered` is displayed inline with the primary count while keeping the original visual hierarchy.
 * Updated manual `Refresh` on Gateway page to also refresh the gateway client snapshot and expanded gateway node list in the same request cycle.
 * Added Gateway YAML import/export on the dashboard: export current runtime tunnels as text, import by file or paste, and upsert tunnels by `clientKey + name` without any server-side file path operations.
+* Fixed Gateway YAML import idempotency and restore behavior: repeated imports now update instead of failing, unknown/offline `clientKey` entries are accepted as pending restore targets, and dashboard now surfaces backend error messages instead of a generic `HTTP 400`.
 
 ## Protocol and Runtime Notes
 

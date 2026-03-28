@@ -3,11 +3,18 @@
 class HTTPError extends Error {
   status: number
   statusText: string
+  responseBody?: any
 
-  constructor(status: number, statusText: string, message?: string) {
+  constructor(
+    status: number,
+    statusText: string,
+    message?: string,
+    responseBody?: any,
+  ) {
     super(message || statusText)
     this.status = status
     this.statusText = statusText
+    this.responseBody = responseBody
   }
 }
 
@@ -19,10 +26,30 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(url, { ...defaultOptions, ...options })
 
   if (!response.ok) {
+    let detailMessage = `HTTP ${response.status}`
+    let responseBody: any = undefined
+    try {
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const data = await response.json()
+        responseBody = data
+        if (data && typeof data.msg === 'string' && data.msg.trim() !== '') {
+          detailMessage = data.msg
+        }
+      } else {
+        const text = await response.text()
+        if (text.trim() !== '') {
+          detailMessage = text.trim()
+        }
+      }
+    } catch {
+      // keep default message
+    }
     throw new HTTPError(
       response.status,
       response.statusText,
-      `HTTP ${response.status}`,
+      detailMessage,
+      responseBody,
     )
   }
 

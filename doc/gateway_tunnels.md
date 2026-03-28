@@ -62,6 +62,8 @@ The page also includes YAML import/export:
 - `Export YAML` returns the current runtime gateway tunnel set as YAML text.
 - `Import YAML` accepts pasted YAML text or a browser-selected local file.
 - Import performs upsert by `clientKey + name` (update if existing, create if missing).
+- Import is idempotent for replay: importing the same YAML again updates existing items instead of failing on duplicates.
+- Import accepts unknown/offline `clientKey` entries so restore can happen before clients reconnect; those tunnels stay pending until a matching client appears.
 - The dashboard and API only process YAML content. There is no server-side file path read/write.
 
 The page also captures a one-time gateway client snapshot when the page is first loaded:

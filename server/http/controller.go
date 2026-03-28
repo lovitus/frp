@@ -461,7 +461,7 @@ func (c *Controller) APIGatewayTunnelImport(ctx *httppkg.Context) (any, error) {
 			TargetHost: strings.TrimSpace(item.TargetHost),
 			TargetPort: item.TargetPort,
 		}
-		if err := c.validateGatewayTunnelClient(tunnel); err != nil {
+		if err := c.validateGatewayTunnelImportPayload(tunnel); err != nil {
 			return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("invalid tunnel at index %d: %v", idx, err))
 		}
 
@@ -537,6 +537,15 @@ func (c *Controller) validateGatewayTunnelClient(tunnel gatewaypkg.Tunnel) error
 			return httppkg.NewError(http.StatusBadRequest, "selected gateway client does not allow gateway tunnels")
 		}
 	}
+	return nil
+}
+
+func (c *Controller) validateGatewayTunnelImportPayload(tunnel gatewaypkg.Tunnel) error {
+	if strings.TrimSpace(tunnel.ClientKey) == "" {
+		return fmt.Errorf("clientKey is required")
+	}
+	// Import is designed for restore/idempotent replay. Unknown/offline client keys
+	// are accepted and will stay pending until a matching client appears.
 	return nil
 }
 
