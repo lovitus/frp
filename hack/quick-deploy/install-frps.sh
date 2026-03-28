@@ -7,6 +7,8 @@ RAW_BASE="${FRP_RAW_BASE:-}"
 
 BINARY_NAME="frps"
 CFG_NAME="frps.toml"
+INPUT_FD=0
+HAS_TTY_FD=0
 
 BIND_PORT="7000"
 MIX_BIND_PORT="7001"
@@ -24,6 +26,16 @@ Usage:
 Environment overrides:
   FRP_REPO, FRP_RELEASE_TAG, FRP_RAW_BASE
 EOF
+}
+
+init_input_fd() {
+  if { exec 9<>/dev/tty; } 2>/dev/null; then
+    INPUT_FD=9
+    HAS_TTY_FD=1
+  else
+    INPUT_FD=0
+    HAS_TTY_FD=0
+  fi
 }
 
 http_get() {
@@ -63,24 +75,50 @@ trim() {
   printf '%s' "$s"
 }
 
+read_interactive_line() {
+  local prompt="$1"
+  local secret="${2:-false}"
+  local value
+  if [[ "$HAS_TTY_FD" -eq 1 ]]; then
+    if [[ "$secret" == "true" ]]; then
+      read -r -s -p "$prompt" value <&$INPUT_FD || return 1
+      printf '\n' >&$INPUT_FD
+    else
+      read -r -p "$prompt" value <&$INPUT_FD || return 1
+    fi
+  else
+    if [[ "$secret" == "true" ]]; then
+      read -r -s -p "$prompt" value || return 1
+      echo >&2
+    else
+      read -r -p "$prompt" value || return 1
+    fi
+  fi
+  printf '%s' "$value"
+}
+
 prompt_line() {
   local label="$1"
   local default_value="${2:-}"
   local value
   if [[ -n "$default_value" ]]; then
-    read -r -p "${label} [${default_value}]: " value
+    if ! value="$(read_interactive_line "${label} [${default_value}]: ")"; then
+      return 1
+    fi
     value="$(trim "$value")"
     if [[ -z "$value" ]]; then
       value="$default_value"
     fi
   else
     while true; do
-      read -r -p "${label}: " value
+      if ! value="$(read_interactive_line "${label}: ")"; then
+        return 1
+      fi
       value="$(trim "$value")"
       if [[ -n "$value" ]]; then
         break
       fi
-      echo "This value is required."
+      echo "This value is required." >&2
     done
   fi
   printf '%s' "$value"
@@ -92,22 +130,16 @@ prompt_password() {
   local value
   while true; do
     if [[ -n "$default_value" ]]; then
-      if [[ -t 0 ]]; then
-        read -r -s -p "${label} [press Enter to use default]: " value || true
-        echo
-      else
-        read -r -p "${label} [press Enter to use default]: " value || true
+      if ! value="$(read_interactive_line "${label} [press Enter to use default]: " true)"; then
+        return 1
       fi
       value="$(trim "$value")"
       if [[ -z "$value" ]]; then
         value="$default_value"
       fi
     else
-      if [[ -t 0 ]]; then
-        read -r -s -p "${label}: " value || true
-        echo
-      else
-        read -r -p "${label}: " value || true
+      if ! value="$(read_interactive_line "${label}: " true)"; then
+        return 1
       fi
       value="$(trim "$value")"
     fi
@@ -115,7 +147,7 @@ prompt_password() {
       printf '%s' "$value"
       return 0
     fi
-    echo "Password cannot be empty."
+    echo "Password cannot be empty." >&2
   done
 }
 
@@ -124,12 +156,14 @@ prompt_port() {
   local default_value="$2"
   local value
   while true; do
-    value="$(prompt_line "$label" "$default_value")"
+    if ! value="$(prompt_line "$label" "$default_value")"; then
+      return 1
+    fi
     if [[ "$value" =~ ^[0-9]+$ ]] && ((value >= 1 && value <= 65535)); then
       printf '%s' "$value"
       return 0
     fi
-    echo "Invalid port '${value}'. Expected 1..65535."
+    echo "Invalid port '${value}'. Expected 1..65535." >&2
   done
 }
 
@@ -350,6 +384,7 @@ if [[ -z "$RAW_BASE" ]]; then
 fi
 
 echo "Repo: ${REPO}"
+init_input_fd
 detect_platform
 echo "Detected platform: ${DETECTED_OS}_${DETECTED_ARCH}"
 resolve_release_json
@@ -381,17 +416,35 @@ chmod +x "./${BINARY_NAME}"
 
 echo
 echo "Configure frps (press Enter to accept defaults)"
-BIND_PORT="$(prompt_port "bindPort" "${BIND_PORT}")"
-MIX_BIND_PORT="$(prompt_port "mixBindPort" "${MIX_BIND_PORT}")"
-CONNECT_PASSWORD="$(prompt_password "Connection password (used for ss/kcp/ssh)")"
-DASHBOARD_ADDR="$(prompt_line "dashboard/webServer addr" "${DASHBOARD_ADDR}")"
+if ! BIND_PORT="$(prompt_port "bindPort" "${BIND_PORT}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
+if ! MIX_BIND_PORT="$(prompt_port "mixBindPort" "${MIX_BIND_PORT}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
+if ! CONNECT_PASSWORD="$(prompt_password "Connection password (used for ss/kcp/ssh)")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
+if ! DASHBOARD_ADDR="$(prompt_line "dashboard/webServer addr" "${DASHBOARD_ADDR}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
 
 default_dashboard_port=$((MIX_BIND_PORT + 1))
 if ((default_dashboard_port > 65535)); then
   default_dashboard_port=7501
 fi
-DASHBOARD_PORT="$(prompt_port "dashboard/webServer port" "${default_dashboard_port}")"
-DASHBOARD_PASSWORD="$(prompt_password "dashboard password" "${CONNECT_PASSWORD}")"
+if ! DASHBOARD_PORT="$(prompt_port "dashboard/webServer port" "${default_dashboard_port}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
+if ! DASHBOARD_PASSWORD="$(prompt_password "dashboard password" "${CONNECT_PASSWORD}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
 
 generate_config
 verify_and_smoke_run
