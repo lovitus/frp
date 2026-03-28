@@ -31,8 +31,10 @@
     <div class="stats-grid">
       <div class="stat-card">
         <span class="stat-label">Gateway Clients</span>
-        <span class="stat-value">{{ gatewayOnlineCount }}/{{ gatewayRegisteredCount }}</span>
-        <span class="stat-meta">online / registered</span>
+        <span class="stat-value">
+          {{ gatewayOnlineCount }}/{{ gatewayRegisteredCount }}
+          <span class="stat-inline-meta">online / registered</span>
+        </span>
         <ActionButton
           variant="outline"
           size="small"
@@ -784,9 +786,11 @@ onMounted(() => {
   color: var(--el-text-color-primary);
 }
 
-.stat-meta {
+.stat-inline-meta {
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
 }
 
 .snapshot-toggle {
