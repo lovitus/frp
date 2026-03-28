@@ -400,6 +400,9 @@ LC_ALL=C tar -xzf "${tmp_archive}" -C "${tmp_extract}"
 
 pkg_dir="$(find "${tmp_extract}" -maxdepth 1 -type d -name "frp_${RELEASE_VERSION}_${asset_suffix}" | head -n 1 || true)"
 if [[ -z "$pkg_dir" ]]; then
+  pkg_dir="$(find "${tmp_extract}" -maxdepth 1 -type d -name "frp_*_${asset_suffix}" | head -n 1 || true)"
+fi
+if [[ -z "$pkg_dir" ]]; then
   echo "Extracted package directory not found." >&2
   exit 1
 fi

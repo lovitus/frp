@@ -116,7 +116,10 @@ jobs:
         working-directory: web/frpc
 
       - name: Build release packages
-        run: ./package.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRP_PACKAGE_VERSION="${GITHUB_REF_NAME#v}" ./package.sh
 
       - name: Normalize package filenames to tag version
         shell: bash

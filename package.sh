@@ -1,8 +1,15 @@
 #!/bin/sh
 set -e
 
+BASE_LDFLAGS='-s -w'
+if [ -n "${FRP_PACKAGE_VERSION:-}" ]; then
+    BUILD_LDFLAGS="${BASE_LDFLAGS} -X github.com/fatedier/frp/pkg/util/version.version=${FRP_PACKAGE_VERSION}"
+else
+    BUILD_LDFLAGS="${BASE_LDFLAGS}"
+fi
+
 # compile for version
-make
+make LDFLAGS="${BUILD_LDFLAGS}"
 if [ $? -ne 0 ]; then
     echo "make error"
     exit 1
@@ -12,7 +19,7 @@ frp_version=`./bin/frps --version`
 echo "build version: $frp_version"
 
 # cross_compiles
-make -f ./Makefile.cross-compiles
+make -f ./Makefile.cross-compiles LDFLAGS="${BUILD_LDFLAGS}"
 
 rm -rf ./release/packages
 mkdir -p ./release/packages
