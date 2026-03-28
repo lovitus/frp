@@ -9,7 +9,7 @@
         </p>
       </div>
       <div class="actions-section">
-        <ActionButton variant="outline" size="small" @click="fetchData">
+        <ActionButton variant="outline" size="small" @click="fetchData(true)">
           Refresh
         </ActionButton>
         <ActionButton
@@ -591,10 +591,14 @@ const fetchTunnels = async () => {
   tunnels.value = await getGatewayTunnels(true)
 }
 
-const fetchData = async () => {
+const fetchData = async (refreshSnapshot = false) => {
   loading.value = true
   try {
-    await fetchTunnels()
+    if (refreshSnapshot) {
+      await Promise.all([fetchClients(true), fetchTunnels()])
+    } else {
+      await fetchTunnels()
+    }
   } catch (error: any) {
     ElMessage({
       type: 'error',
