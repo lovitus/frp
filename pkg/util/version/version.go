@@ -14,7 +14,7 @@
 
 package version
 
-var version = "0.68.1-mix.10"
+var version = "0.68.1-mix.11"
 
 func Full() string {
 	return version

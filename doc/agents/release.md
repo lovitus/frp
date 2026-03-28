@@ -48,7 +48,7 @@ When a `v*` tag is pushed, `.github/workflows/ci-release.yml` will:
 4. Cross-build packaged binaries for all configured OS/arch targets via `./package.sh`.
 5. Generate SHA256 checksums for the packaged artifacts.
 6. Generate release notes by combining `Release.md` with an automated git changelog.
-7. Create or update the GitHub Release and upload all packages directly from Actions.
+7. Create or update the GitHub Release with a title prefixed by the Asia/Singapore build timestamp, then upload all packages directly from Actions.
 
 The workflow never depends on a local workstation to upload release binaries.
 
