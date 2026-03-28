@@ -209,6 +209,8 @@ The frps dashboard can then create runtime TCP or UDP listeners that forward thr
 
 To begin, download the latest program for your operating system and architecture from the [Release](https://github.com/fatedier/frp/releases) page.
 
+For one-command interactive setup (`wget | bash`) of both `frps` and `frpc`, see [Quick Deploy](/doc/quick_deploy.md).
+
 Next, place the `frps` binary and server configuration file on Server A, which has a public IP address.
 
 Finally, place the `frpc` binary and client configuration file on Server B, which is located on a LAN that cannot be directly accessed from the public internet.
