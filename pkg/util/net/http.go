@@ -154,12 +154,25 @@ func (authMid *HTTPAuthMiddleware) writeLockedResponse(w http.ResponseWriter, r 
 }
 
 func buildDashboardLockHTML(seconds int) string {
-	const htmlTemplate = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboard Locked</title><style>body{font-family:ui-sans-serif,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
-.card{max-width:420px;padding:28px 24px;border-radius:16px;background:#111827;box-shadow:0 20px 45px rgba(0,0,0,.35)}h1{margin:0 0 12px;font-size:24px}
-p{margin:0;color:#cbd5e1;line-height:1.6}.count{display:inline-block;min-width:2ch;font-weight:700;color:#f59e0b}</style></head><body>
-<div class="card"><h1>Dashboard Temporarily Locked</h1><p>Too many failed login attempts. Authentication is paused for <span id="count" class="count">%d</span> seconds.</p></div>
-<script>let left=%d;const el=document.getElementById('count');const timer=setInterval(()=>{left-=1;if(left<=0){clearInterval(timer);location.reload();return;}el.textContent=String(left);},1000);</script>
+	const htmlTemplate = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Locked</title><style>
+body{font-family:ui-sans-serif,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;
+display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{max-width:420px;padding:28px 24px;border-radius:16px;background:#111827;
+box-shadow:0 20px 45px rgba(0,0,0,.35)}
+h1{margin:0 0 12px;font-size:24px}
+p{margin:0;color:#cbd5e1;line-height:1.6}
+.count{display:inline-block;min-width:2ch;font-weight:700;color:#f59e0b}
+</style></head><body>
+<div class="card"><h1>Dashboard Temporarily Locked</h1>
+<p>Too many failed login attempts. Authentication is paused for
+<span id="count" class="count">%d</span> seconds.</p></div>
+<script>
+let left=%d;
+const el=document.getElementById('count');
+const timer=setInterval(()=>{left-=1;if(left<=0){clearInterval(timer);location.reload();return;}el.textContent=String(left);},1000);
+</script>
 </body></html>`
 	return fmt.Sprintf(htmlTemplate, seconds, seconds)
 }
