@@ -62,7 +62,7 @@ The page also captures a one-time gateway client snapshot when the page is first
 - `online / registered` gateway client count
 - an expandable gateway node list with online/offline status and client details
 
-This snapshot is intentionally refreshed only once at page entry. Later tunnel refresh actions only update tunnel records.
+This snapshot is captured at page entry and can be refreshed manually from the page refresh action. It is not continuously polled in the background.
 
 In `Proxies`, gateway-managed runtime proxies keep their internal proxy name for identity and metrics, and show an additional friendly summary line:
 

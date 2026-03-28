@@ -26,6 +26,9 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Improved Gateway dashboard readability with grouped card-style tunnel layout, and fixed missing button theme variables so primary actions are always visible.
 * Added a one-time gateway client snapshot on Gateway page load that shows `online / registered` counts and an expandable gateway node list with status.
 * Updated Proxies cards for gateway-managed runtime proxies to show a friendly tunnel summary line (`name · remark · targetHost:targetPort`) while keeping the internal proxy key unchanged for routing and metrics.
+* Updated the Gateway page layout to present runtime tunnel details in a single row (`listen`, `gateway`, `target`, `status`) on desktop for denser scanning.
+* Updated the Gateway stats card so `online / registered` is displayed inline with the primary count while keeping the original visual hierarchy.
+* Updated manual `Refresh` on Gateway page to also refresh the gateway client snapshot and expanded gateway node list in the same request cycle.
 
 ## Protocol and Runtime Notes
 
