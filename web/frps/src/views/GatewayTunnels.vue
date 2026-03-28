@@ -13,6 +13,7 @@
           Refresh
         </ActionButton>
         <ActionButton
+          variant="outline"
           size="small"
           :disabled="eligibleClients.length === 0"
           @click="openCreateDialog"
@@ -61,90 +62,26 @@
     </div>
 
     <div v-loading="loading" class="table-wrapper">
-      <el-table
-        v-if="filteredTunnels.length > 0"
-        :data="filteredTunnels"
-        stripe
-        class="gateway-table"
-      >
-        <el-table-column label="Name" min-width="240">
-          <template #default="{ row }">
-            <div class="name-cell">
-              <div class="tunnel-name">{{ row.name }}</div>
+      <div v-if="filteredTunnels.length > 0" class="tunnels-list">
+        <article
+          v-for="row in filteredTunnels"
+          :key="row.id"
+          class="tunnel-card"
+        >
+          <div class="tunnel-card-header">
+            <div class="tunnel-headline">
+              <div class="tunnel-title-row">
+                <div class="tunnel-name">{{ row.name }}</div>
+                <div class="tunnel-tags">
+                  <el-tag size="small">{{ row.protocol.toUpperCase() }}</el-tag>
+                  <el-tag size="small" :type="getStatusMeta(row.status).type">
+                    {{ getStatusMeta(row.status).label }}
+                  </el-tag>
+                </div>
+              </div>
               <div v-if="row.remark" class="tunnel-remark">{{ row.remark }}</div>
             </div>
-          </template>
-        </el-table-column>
 
-        <el-table-column label="Protocol" width="96">
-          <template #default="{ row }">
-            <el-tag size="small">{{ row.protocol.toUpperCase() }}</el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Listen" min-width="170">
-          <template #default="{ row }">
-            <code>{{ row.bindAddr }}:{{ row.listenPort }}</code>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Gateway" min-width="180">
-          <template #default="{ row }">
-            <div class="endpoint-cell">
-              <div class="gateway-client-head">
-                <span class="gateway-client-name">
-                  {{ getClientLabel(row.clientKey) }}
-                </span>
-                <el-tag
-                  size="small"
-                  :type="getClientOnline(row.clientKey) ? 'success' : 'info'"
-                >
-                  {{ getClientOnline(row.clientKey) ? 'online' : 'offline' }}
-                </el-tag>
-              </div>
-              <div v-if="getClientSubLabel(row.clientKey)" class="endpoint-meta">
-                {{ getClientSubLabel(row.clientKey) }}
-              </div>
-              <div v-if="getClientMetaLine(row.clientKey)" class="endpoint-meta">
-                {{ getClientMetaLine(row.clientKey) }}
-              </div>
-              <div class="endpoint-meta">
-                key {{ row.clientKey }}
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Target" min-width="170">
-          <template #default="{ row }">
-            <code>{{ row.targetHost }}:{{ row.targetPort }}</code>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Status" min-width="240">
-          <template #default="{ row }">
-            <div class="status-cell">
-              <el-tag size="small" :type="getStatusMeta(row.status).type">
-                {{ getStatusMeta(row.status).label }}
-              </el-tag>
-              <div v-if="row.remoteAddr" class="status-detail">
-                remote {{ row.remoteAddr }}
-              </div>
-              <div v-if="row.message" class="status-message">
-                {{ row.message }}
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Updated" min-width="120">
-          <template #default="{ row }">
-            {{ formatUpdatedAt(row.updatedAt) }}
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Actions" width="170" fixed="right">
-          <template #default="{ row }">
             <div class="row-actions">
               <ActionButton
                 variant="outline"
@@ -162,9 +99,65 @@
                 Delete
               </ActionButton>
             </div>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+
+          <div class="tunnel-card-grid">
+            <section class="detail-panel">
+              <div class="detail-label">Listen</div>
+              <code class="detail-code">{{ row.bindAddr }}:{{ row.listenPort }}</code>
+              <div class="detail-meta">
+                Public entrypoint on frps
+              </div>
+            </section>
+
+            <section class="detail-panel">
+              <div class="detail-label">Target</div>
+              <code class="detail-code">{{ row.targetHost }}:{{ row.targetPort }}</code>
+              <div class="detail-meta">
+                Local endpoint on the gateway client
+              </div>
+            </section>
+
+            <section class="detail-panel">
+              <div class="detail-label">Gateway</div>
+              <div class="gateway-client-head">
+                <span class="gateway-client-name">
+                  {{ getClientLabel(row.clientKey) }}
+                </span>
+                <el-tag
+                  size="small"
+                  :type="getClientOnline(row.clientKey) ? 'success' : 'info'"
+                >
+                  {{ getClientOnline(row.clientKey) ? 'online' : 'offline' }}
+                </el-tag>
+              </div>
+              <div v-if="getClientSubLabel(row.clientKey)" class="detail-meta">
+                {{ getClientSubLabel(row.clientKey) }}
+              </div>
+              <div v-if="getClientMetaLine(row.clientKey)" class="detail-meta">
+                {{ getClientMetaLine(row.clientKey) }}
+              </div>
+              <div class="detail-meta">key {{ row.clientKey }}</div>
+            </section>
+
+            <section class="detail-panel detail-panel-status">
+              <div class="detail-label">Status</div>
+              <div v-if="row.remoteAddr" class="status-detail">
+                remote {{ row.remoteAddr }}
+              </div>
+              <div v-if="row.message" class="status-message">
+                {{ row.message }}
+              </div>
+              <div v-else class="detail-meta">No recent status message</div>
+            </section>
+          </div>
+
+          <div class="tunnel-card-footer">
+            <span class="footer-label">Updated</span>
+            <span class="footer-value">{{ formatUpdatedAt(row.updatedAt) }}</span>
+          </div>
+        </article>
+      </div>
 
       <div v-else-if="!loading" class="empty-state">
         <el-empty description="No gateway tunnels found" />
@@ -734,16 +727,82 @@ onMounted(() => {
   min-height: 220px;
 }
 
-.gateway-table :deep(.el-table__cell) {
-  vertical-align: top;
-}
-
-.name-cell,
-.endpoint-cell,
-.status-cell {
+.tunnels-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 16px;
+}
+
+.tunnel-card {
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.tunnel-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 0;
+  flex-wrap: wrap;
+}
+
+.tunnel-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tunnel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tunnel-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tunnel-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-extra-light);
+}
+
+.detail-panel-status {
+  justify-content: center;
+}
+
+.detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--el-text-color-secondary);
+}
+
+.detail-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  font-size: 13px;
 }
 
 .gateway-client-head {
@@ -760,11 +819,12 @@ onMounted(() => {
 
 .tunnel-name {
   font-weight: 600;
+  font-size: 16px;
   color: var(--el-text-color-primary);
 }
 
 .tunnel-remark,
-.endpoint-meta,
+.detail-meta,
 .status-detail,
 .status-message {
   color: var(--el-text-color-secondary);
@@ -776,9 +836,30 @@ onMounted(() => {
   word-break: break-word;
 }
 
+.tunnel-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 20px 18px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.footer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.footer-value {
+  color: var(--el-text-color-primary);
+  font-weight: 500;
+}
+
 .row-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .gateway-form {
@@ -835,6 +916,7 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .tunnel-card-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -847,6 +929,14 @@ code {
 
   .actions-section > * {
     flex: 1;
+  }
+
+  .tunnel-card-header {
+    padding-top: 16px;
+  }
+
+  .tunnel-card-footer {
+    justify-content: flex-start;
   }
 }
 </style>
