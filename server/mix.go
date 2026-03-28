@@ -170,34 +170,30 @@ func (svr *Service) handleMixTCPConn(ctx context.Context, conn net.Conn) {
 	}
 
 	if peek[0] == 0x16 || peek[0] == byte(netpkg.FRPTLSHeadByte) {
-		proto, ok := svr.mixConfig.protocols[v1.MixProtocolWSS]
-		if !ok {
-			_ = conn.Close()
-			return
+		if proto, ok := svr.mixConfig.protocols[v1.MixProtocolWSS]; ok {
+			tlsConn, _, _, err := netpkg.CheckAndEnableTLSServerConnWithTimeout(sc, svr.tlsConfig, true, connReadTimeout)
+			if err != nil {
+				xl.Warnf("mix wss tls detect failed, continue probing: %v", err)
+			} else {
+				wsConn, err := tmix.AcceptWebsocketConn(tlsConn)
+				if err != nil {
+					xl.Warnf("mix wss accept failed, continue probing: %v", err)
+				} else {
+					if err := tmix.ReadAndVerifyToken(wsConn, proto.Protocol, proto.Password); err != nil {
+						xl.Warnf("mix wss token verify failed: %v", err)
+						_ = wsConn.Close()
+						return
+					}
+					if err := tmix.WriteTokenAck(wsConn); err != nil {
+						_ = wsConn.Close()
+						return
+					}
+					xl.Infof("mix selected protocol [wss] for %s", conn.RemoteAddr())
+					svr.serveAcceptedConn(ctx, wsConn, false, useMux)
+					return
+				}
+			}
 		}
-		tlsConn, _, _, err := netpkg.CheckAndEnableTLSServerConnWithTimeout(sc, svr.tlsConfig, true, connReadTimeout)
-		if err != nil {
-			_ = conn.Close()
-			return
-		}
-		wsConn, err := tmix.AcceptWebsocketConn(tlsConn)
-		if err != nil {
-			xl.Warnf("mix wss accept failed: %v", err)
-			_ = tlsConn.Close()
-			return
-		}
-		if err := tmix.ReadAndVerifyToken(wsConn, proto.Protocol, proto.Password); err != nil {
-			xl.Warnf("mix wss token verify failed: %v", err)
-			_ = wsConn.Close()
-			return
-		}
-		if err := tmix.WriteTokenAck(wsConn); err != nil {
-			_ = wsConn.Close()
-			return
-		}
-		xl.Infof("mix selected protocol [wss] for %s", conn.RemoteAddr())
-		svr.serveAcceptedConn(ctx, wsConn, false, useMux)
-		return
 	}
 
 	if tmix.HasTokenMagic(peek) {

@@ -231,6 +231,116 @@ func TestMixManagerFailbackCandidates(t *testing.T) {
 	require.Equal(t, v1.MixProtocolKCP, candidates[0].Candidate.Protocol.Protocol)
 }
 
+func TestMixManagerFailbackNeedsConsecutiveProbeSuccesses(t *testing.T) {
+	manager := newTestMixManager(t)
+	manager.mu.Lock()
+	manager.activeIndex = 1
+	manager.lastSwitchTime = time.Now().Add(-mixFailbackInterval)
+	manager.mu.Unlock()
+
+	baseIndex, candidates, ok := manager.nextFailbackCandidates()
+	require.True(t, ok)
+	require.Len(t, candidates, 1)
+	count, ready := manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, 1, count)
+	require.False(t, ready)
+	manager.finishProbe()
+
+	baseIndex, candidates, ok = manager.nextFailbackCandidates()
+	require.True(t, ok)
+	count, ready = manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, 2, count)
+	require.False(t, ready)
+	manager.finishProbe()
+
+	baseIndex, candidates, ok = manager.nextFailbackCandidates()
+	require.True(t, ok)
+	count, ready = manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, mixFailbackThreshold, count)
+	require.True(t, ready)
+}
+
+func TestMixManagerFailbackProbeFailureResetsSuccessCount(t *testing.T) {
+	manager := newTestMixManager(t)
+	manager.mu.Lock()
+	manager.activeIndex = 1
+	manager.lastSwitchTime = time.Now().Add(-mixFailbackInterval)
+	manager.mu.Unlock()
+
+	baseIndex, candidates, ok := manager.nextFailbackCandidates()
+	require.True(t, ok)
+	count, ready := manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, 1, count)
+	require.False(t, ready)
+	manager.finishProbe()
+
+	baseIndex, _, ok = manager.nextFailbackCandidates()
+	require.True(t, ok)
+	manager.recordFailbackProbeFailure(baseIndex, 0)
+	manager.finishProbe()
+
+	baseIndex, candidates, ok = manager.nextFailbackCandidates()
+	require.True(t, ok)
+	count, ready = manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, 1, count)
+	require.False(t, ready)
+}
+
+func TestMixManagerFailbackProbeFailureOnOtherCandidateDoesNotResetStreak(t *testing.T) {
+	manager := newTestMixManager(t)
+	manager.mu.Lock()
+	manager.activeIndex = 2
+	manager.lastSwitchTime = time.Now().Add(-mixFailbackInterval)
+	manager.mu.Unlock()
+
+	for i := 1; i <= mixFailbackThreshold; i++ {
+		baseIndex, candidates, ok := manager.nextFailbackCandidates()
+		require.True(t, ok)
+		require.Len(t, candidates, 2)
+		require.Equal(t, 0, candidates[0].Index)
+		require.Equal(t, 1, candidates[1].Index)
+
+		// Candidate 0 keeps failing, but should not reset candidate 1 streak.
+		manager.recordFailbackProbeFailure(baseIndex, candidates[0].Index)
+
+		count, ready := manager.recordFailbackProbeSuccess(baseIndex, candidates[1].Index)
+		require.Equal(t, i, count)
+		if i < mixFailbackThreshold {
+			require.False(t, ready)
+			manager.finishProbe()
+		} else {
+			require.True(t, ready)
+		}
+	}
+}
+
+func TestMixManagerFailbackProbeCountResetsWhenActiveChanges(t *testing.T) {
+	manager := newTestMixManager(t)
+	manager.mu.Lock()
+	manager.activeIndex = 1
+	manager.lastSwitchTime = time.Now().Add(-mixFailbackInterval)
+	manager.mu.Unlock()
+
+	baseIndex, candidates, ok := manager.nextFailbackCandidates()
+	require.True(t, ok)
+	count, ready := manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, 1, count)
+	require.False(t, ready)
+	manager.finishProbe()
+
+	manager.recordDialSuccess(2)
+
+	manager.mu.Lock()
+	manager.lastSwitchTime = time.Now().Add(-mixFailbackInterval)
+	manager.mu.Unlock()
+
+	baseIndex, candidates, ok = manager.nextFailbackCandidates()
+	require.True(t, ok)
+	count, ready = manager.recordFailbackProbeSuccess(baseIndex, candidates[0].Index)
+	require.Equal(t, 1, count)
+	require.False(t, ready)
+}
+
 func TestMixManagerFailbackCandidatesCoverEarlierHostsAndProtocols(t *testing.T) {
 	manager := newHostFallbackMixManager(t)
 	manager.mu.Lock()

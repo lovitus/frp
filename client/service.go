@@ -487,9 +487,16 @@ func (svr *Service) keepMixFailback() {
 			err := probeMixProtocol(probeCtx, svr.common, candidate.Candidate)
 			cancel()
 			if err != nil {
+				svr.mixManager.recordFailbackProbeFailure(baseIndex, candidate.Index)
 				xl.Warnf("mix failback probe fail, target protocol [%s], target endpoint [%s], err: %v",
 					candidate.Candidate.Protocol.Protocol, candidate.Candidate.Address(), err)
 				continue
+			}
+			successCount, ready := svr.mixManager.recordFailbackProbeSuccess(baseIndex, candidate.Index)
+			if !ready {
+				xl.Infof("mix failback probe success, target protocol [%s], target endpoint [%s], stable count [%d/%d]",
+					candidate.Candidate.Protocol.Protocol, candidate.Candidate.Address(), successCount, mixFailbackThreshold)
+				break
 			}
 
 			if svr.mixManager.switchToPreferred(baseIndex, candidate.Index) {

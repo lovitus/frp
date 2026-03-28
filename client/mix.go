@@ -28,6 +28,7 @@ var (
 	mixFallbackDelay     = 10 * time.Second
 	mixFailbackInterval  = 60 * time.Second
 	mixFallbackThreshold = 3
+	mixFailbackThreshold = 3
 )
 
 type mixProbeCandidate struct {
@@ -57,6 +58,9 @@ type MixConnectorManager struct {
 	probing        bool
 	switching      bool
 	switchReason   string
+
+	failbackProbeIndex int
+	failbackProbeCount int
 }
 
 func NewMixConnectorManager(cfg *v1.ClientCommonConfig) (*MixConnectorManager, error) {
@@ -85,8 +89,9 @@ func NewMixConnectorManager(cfg *v1.ClientCommonConfig) (*MixConnectorManager, e
 	}
 	log.Infof("mix init, endpoints %v, protocols %v, candidate count [%d]", endpointLabels, names, len(candidates))
 	return &MixConnectorManager{
-		candidates: candidates,
-		failIndex:  -1,
+		candidates:         candidates,
+		failIndex:          -1,
+		failbackProbeIndex: -1,
 	}, nil
 }
 
@@ -147,6 +152,7 @@ func (m *MixConnectorManager) recordDialSuccess(index int) string {
 	if m.activeIndex != index {
 		m.activeIndex = index
 		m.lastSwitchTime = time.Now()
+		m.resetFailbackProbeLocked()
 	}
 	m.failIndex = -1
 	m.failCount = 0
@@ -185,6 +191,7 @@ func (m *MixConnectorManager) recordDialFailure(index int) (int, *mixDialCandida
 	m.failCount = 0
 	m.lastFailure = time.Time{}
 	m.lastSwitchTime = time.Now()
+	m.resetFailbackProbeLocked()
 	m.switching = true
 	m.switchReason = "fallback"
 	entry := m.candidates[m.activeIndex]
@@ -219,6 +226,47 @@ func (m *MixConnectorManager) finishProbe() {
 	m.probing = false
 }
 
+func (m *MixConnectorManager) resetFailbackProbeLocked() {
+	m.failbackProbeIndex = -1
+	m.failbackProbeCount = 0
+}
+
+func (m *MixConnectorManager) recordFailbackProbeSuccess(baseIndex, targetIndex int) (int, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.probing || m.switching || m.activeIndex != baseIndex {
+		return 0, false
+	}
+	if targetIndex >= baseIndex || targetIndex < 0 {
+		return 0, false
+	}
+	if m.failbackProbeIndex != targetIndex {
+		m.failbackProbeIndex = targetIndex
+		m.failbackProbeCount = 0
+	}
+	m.failbackProbeCount++
+	return m.failbackProbeCount, m.failbackProbeCount >= mixFailbackThreshold
+}
+
+func (m *MixConnectorManager) recordFailbackProbeFailure(baseIndex, targetIndex int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.probing || m.switching || m.activeIndex != baseIndex {
+		return
+	}
+	if targetIndex >= baseIndex || targetIndex < 0 {
+		return
+	}
+	// Only reset streak for the same target candidate.
+	// This avoids a lower-priority healthy candidate being starved by a consistently failing earlier candidate.
+	if m.failbackProbeIndex != targetIndex {
+		return
+	}
+	m.resetFailbackProbeLocked()
+}
+
 func (m *MixConnectorManager) switchToPreferred(baseIndex, targetIndex int) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -237,6 +285,7 @@ func (m *MixConnectorManager) switchToPreferred(baseIndex, targetIndex int) bool
 	m.failCount = 0
 	m.lastFailure = time.Time{}
 	m.lastSwitchTime = time.Now()
+	m.resetFailbackProbeLocked()
 	m.switching = true
 	m.switchReason = "failback"
 	return true
