@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -157,4 +158,120 @@ func TestGatewayTunnelManagerHandleStatusResponseUpdatesTunnel(t *testing.T) {
 	require.Equal(t, gatewaypkg.StatusOnline, current.Status)
 	require.Equal(t, ":6100", current.RemoteAddr)
 	require.Equal(t, int64(1700000000), current.UpdatedAt.Unix())
+}
+
+func TestNormalizeGatewayTunnelRejectsInvalidFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		tunnel GatewayTunnel
+	}{
+		{
+			name: "invalid bind addr",
+			tunnel: GatewayTunnel{
+				Name:       "web",
+				Protocol:   "tcp",
+				BindAddr:   "bad-host",
+				ListenPort: 6000,
+				ClientKey:  "client-a",
+				TargetHost: "127.0.0.1",
+				TargetPort: 8080,
+			},
+		},
+		{
+			name: "invalid protocol",
+			tunnel: GatewayTunnel{
+				Name:       "web",
+				Protocol:   "http",
+				ListenPort: 6000,
+				ClientKey:  "client-a",
+				TargetHost: "127.0.0.1",
+				TargetPort: 8080,
+			},
+		},
+		{
+			name: "invalid target host whitespace",
+			tunnel: GatewayTunnel{
+				Name:       "web",
+				Protocol:   "tcp",
+				ListenPort: 6000,
+				ClientKey:  "client-a",
+				TargetHost: "127.0.0.1\nx",
+				TargetPort: 8080,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := normalizeGatewayTunnel(tc.tunnel, true)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestGatewayTunnelManagerRejectsDuplicateNamePerClient(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+
+	_, err := manager.Create(GatewayTunnel{
+		Name:       "ssh",
+		Protocol:   "tcp",
+		ListenPort: 6000,
+		ClientKey:  "client-a",
+		TargetHost: "127.0.0.1",
+		TargetPort: 22,
+	})
+	require.NoError(t, err)
+
+	_, err = manager.Create(GatewayTunnel{
+		Name:       "ssh",
+		Protocol:   "udp",
+		ListenPort: 6001,
+		ClientKey:  "client-a",
+		TargetHost: "127.0.0.1",
+		TargetPort: 53,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already exists")
+}
+
+func TestGatewayTunnelManagerRefreshStatusTimeoutMarksPending(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(clientKey string) (registry.ClientInfo, bool) {
+			return registry.ClientInfo{
+				Key:                 clientKey,
+				Online:              true,
+				AllowGatewayTunnels: true,
+			}, true
+		},
+		func(string, msg.Message) error { return nil },
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:       "db",
+		Protocol:   "tcp",
+		ListenPort: 6100,
+		ClientKey:  "client-a",
+		TargetHost: "127.0.0.1",
+		TargetPort: 5432,
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	manager.RefreshStatus(ctx, []string{created.ID})
+
+	current, ok := manager.Get(created.ID)
+	require.True(t, ok)
+	require.Equal(t, gatewaypkg.StatusPending, current.Status)
+	require.Equal(t, "status request timed out", current.Message)
 }

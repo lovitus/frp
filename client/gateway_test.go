@@ -46,3 +46,69 @@ func TestNormalizeGatewayTunnelConfigDefaultsTargetHost(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "127.0.0.1", cfg.TargetHost)
 }
+
+func TestNormalizeGatewayTunnelConfigRejectsInvalidFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  msg.GatewayTunnelConfig
+	}{
+		{
+			name: "missing name",
+			cfg: msg.GatewayTunnelConfig{
+				ID:         "tun-3",
+				Protocol:   "tcp",
+				BindAddr:   "0.0.0.0",
+				ListenPort: 6000,
+				TargetHost: "127.0.0.1",
+				TargetPort: 22,
+			},
+		},
+		{
+			name: "unsupported protocol",
+			cfg: msg.GatewayTunnelConfig{
+				ID:         "tun-3",
+				Name:       "bad",
+				Protocol:   "http",
+				BindAddr:   "0.0.0.0",
+				ListenPort: 6000,
+				TargetHost: "127.0.0.1",
+				TargetPort: 22,
+			},
+		},
+		{
+			name: "invalid target host whitespace",
+			cfg: msg.GatewayTunnelConfig{
+				ID:         "tun-3",
+				Name:       "bad",
+				Protocol:   "tcp",
+				BindAddr:   "0.0.0.0",
+				ListenPort: 6000,
+				TargetHost: "127.0.0.1\tbad",
+				TargetPort: 22,
+			},
+		},
+		{
+			name: "invalid listen port",
+			cfg: msg.GatewayTunnelConfig{
+				ID:         "tun-3",
+				Name:       "bad",
+				Protocol:   "udp",
+				BindAddr:   "0.0.0.0",
+				ListenPort: 70000,
+				TargetHost: "127.0.0.1",
+				TargetPort: 53,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := normalizeGatewayTunnelConfig(tc.cfg)
+			require.Error(t, err)
+		})
+	}
+}
