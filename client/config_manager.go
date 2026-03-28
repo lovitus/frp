@@ -41,7 +41,11 @@ func (m *serviceConfigManager) ReloadFromFile(strict bool) error {
 	proxyCfgsForValidation = config.CompleteProxyConfigurers(proxyCfgsForValidation)
 	visitorCfgsForValidation = config.CompleteVisitorConfigurers(visitorCfgsForValidation)
 
-	if _, err := validation.ValidateAllClientConfig(result.Common, proxyCfgsForValidation, visitorCfgsForValidation, m.svr.unsafeFeatures); err != nil {
+	warning, err := validation.ValidateAllClientConfig(result.Common, proxyCfgsForValidation, visitorCfgsForValidation, m.svr.unsafeFeatures)
+	if warning != nil {
+		log.Warnf("%v", warning)
+	}
+	if err != nil {
 		return fmt.Errorf("%w: %v", configmgmt.ErrInvalidArgument, err)
 	}
 

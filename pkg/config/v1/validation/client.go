@@ -40,6 +40,7 @@ func (v *ConfigValidator) ValidateClientCommonConfig(c *v1.ClientCommonConfig) (
 		func() (Warning, error) { return nil, validateWebServerConfig(&c.WebServer) },
 		func() (Warning, error) { return validateTransportConfig(&c.Transport) },
 		func() (Warning, error) { return nil, validateClientMixConfig(c) },
+		func() (Warning, error) { return validateGatewayClientIdentity(c), nil },
 		func() (Warning, error) { return validateIncludeFiles(c.IncludeConfigFiles) },
 	}
 
@@ -72,6 +73,13 @@ func validateClientMixConfig(c *v1.ClientCommonConfig) error {
 		errs = AppendError(errs, err)
 	}
 	return errs
+}
+
+func validateGatewayClientIdentity(c *v1.ClientCommonConfig) Warning {
+	if lo.FromPtr(c.AllowGatewayTunnels) && c.ClientID == "" {
+		return fmt.Errorf("allowGatewayTunnels is enabled but clientID is empty; frpc will still start, but this client will not be eligible for dashboard gateway tunnels until clientID is configured")
+	}
+	return nil
 }
 
 func validateFeatureGates(c *v1.ClientCommonConfig) (Warning, error) {

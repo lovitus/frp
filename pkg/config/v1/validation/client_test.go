@@ -31,3 +31,33 @@ func TestValidateClientMixConfigRejectsInvalidFallbackHosts(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "invalid mix fallback host")
 }
+
+func TestValidateGatewayClientIdentityWarnsWithoutClientID(t *testing.T) {
+	validator := NewConfigValidator(nil)
+	cfg := &v1.ClientCommonConfig{
+		AllowGatewayTunnels: ptrBool(true),
+	}
+	require.NoError(t, cfg.Complete())
+
+	warning, err := validator.ValidateClientCommonConfig(cfg)
+	require.NoError(t, err)
+	require.Error(t, warning)
+	require.ErrorContains(t, warning, "allowGatewayTunnels is enabled but clientID is empty")
+}
+
+func TestValidateGatewayClientIdentityNoWarningWithClientID(t *testing.T) {
+	validator := NewConfigValidator(nil)
+	cfg := &v1.ClientCommonConfig{
+		ClientID:            "edge-01",
+		AllowGatewayTunnels: ptrBool(true),
+	}
+	require.NoError(t, cfg.Complete())
+
+	warning, err := validator.ValidateClientCommonConfig(cfg)
+	require.NoError(t, err)
+	require.NoError(t, warning)
+}
+
+func ptrBool(v bool) *bool {
+	return &v
+}
