@@ -20,6 +20,7 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Added `allowGatewayTunnels` as the canonical frpc opt-in field, while preserving `mixAllowGateway` and `mix_allow_gateway` as compatibility aliases.
 * Added runtime gateway synchronization over the existing control channel, plus status refresh and bind-address support scoped only to gateway-managed listeners.
 * Added a simple dashboard authentication lockout: 10 failed logins within 1 minute pause authentication for 10 seconds, return `429` on API paths, and show a browser countdown page before automatic unlock.
+* Fixed legacy `[common]` INI compatibility for `mix` and gateway-related client/server fields, and restored camelCase aliases such as `bindPort`, `serverAddr`, `mixBindPort`, and `mixToken` on that legacy load path.
 
 ## Protocol and Runtime Notes
 

@@ -40,6 +40,18 @@ type ClientCommonConf struct {
 	// ServerPort specifies the port to connect to the server on. By default,
 	// this value is 7000.
 	ServerPort int `ini:"server_port" json:"server_port"`
+	// ClientID uniquely identifies this client for runtime gateway management.
+	ClientID string `ini:"client_id" json:"client_id"`
+	// MixBindPort specifies the shared mix transport port.
+	MixBindPort int `ini:"mix_bind_port" json:"mix_bind_port"`
+	// MixToken configures enabled mix transport entries.
+	MixToken string `ini:"mix_token" json:"mix_token"`
+	// MixFallbackHosts configures ordered endpoint fallback hosts for mix.
+	MixFallbackHosts string `ini:"mix_fallback_hosts" json:"mix_fallback_hosts"`
+	// AllowGatewayTunnels opts this client into server-managed gateway tunnels.
+	AllowGatewayTunnels *bool `ini:"-" json:"allow_gateway_tunnels"`
+	// MixAllowGateway keeps backward compatibility with earlier naming.
+	MixAllowGateway *bool `ini:"-" json:"mix_allow_gateway"`
 	// STUN server to help penetrate NAT hole.
 	NatHoleSTUNServer string `ini:"nat_hole_stun_server" json:"nat_hole_stun_server"`
 	// The maximum amount of time a dial to server will wait for a connect to complete.
@@ -190,6 +202,22 @@ func UnmarshalClientConfFromIni(source any) (ClientCommonConf, error) {
 	common := GetDefaultClientConf()
 	err = s.MapTo(&common)
 	if err != nil {
+		return ClientCommonConf{}, err
+	}
+	applyStringAlias(s, &common.ServerAddr, "serverAddr")
+	if err = applyIntAlias(s, &common.ServerPort, "serverPort"); err != nil {
+		return ClientCommonConf{}, err
+	}
+	applyStringAlias(s, &common.ClientID, "clientID")
+	if err = applyIntAlias(s, &common.MixBindPort, "mixBindPort"); err != nil {
+		return ClientCommonConf{}, err
+	}
+	applyStringAlias(s, &common.MixToken, "mixToken")
+	applyStringAlias(s, &common.MixFallbackHosts, "mixFallbackHosts")
+	if err = applyBoolAlias(s, &common.AllowGatewayTunnels, "allow_gateway_tunnels", "allowGatewayTunnels"); err != nil {
+		return ClientCommonConf{}, err
+	}
+	if err = applyBoolAlias(s, &common.MixAllowGateway, "mix_allow_gateway", "mixAllowGateway"); err != nil {
 		return ClientCommonConf{}, err
 	}
 

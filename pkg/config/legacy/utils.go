@@ -15,7 +15,10 @@
 package legacy
 
 import (
+	"strconv"
 	"strings"
+
+	"gopkg.in/ini.v1"
 )
 
 func GetMapWithoutPrefix(set map[string]string, prefix string) map[string]string {
@@ -48,4 +51,42 @@ func GetMapByPrefix(set map[string]string, prefix string) map[string]string {
 	}
 
 	return m
+}
+
+func applyStringAlias(section *ini.Section, target *string, keys ...string) {
+	for _, key := range keys {
+		if v, err := section.GetKey(key); err == nil {
+			*target = v.String()
+		}
+	}
+}
+
+func applyIntAlias(section *ini.Section, target *int, keys ...string) error {
+	for _, key := range keys {
+		v, err := section.GetKey(key)
+		if err != nil {
+			continue
+		}
+		parsed, err := strconv.Atoi(v.String())
+		if err != nil {
+			return err
+		}
+		*target = parsed
+	}
+	return nil
+}
+
+func applyBoolAlias(section *ini.Section, target **bool, keys ...string) error {
+	for _, key := range keys {
+		v, err := section.GetKey(key)
+		if err != nil {
+			continue
+		}
+		parsed, err := strconv.ParseBool(v.String())
+		if err != nil {
+			return err
+		}
+		*target = &parsed
+	}
+	return nil
 }

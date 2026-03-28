@@ -42,6 +42,10 @@ type ServerCommonConf struct {
 	// BindPort specifies the port that the server listens on. By default, this
 	// value is 7000.
 	BindPort int `ini:"bind_port" json:"bind_port"`
+	// MixBindPort specifies the shared mix transport port.
+	MixBindPort int `ini:"mix_bind_port" json:"mix_bind_port"`
+	// MixToken configures enabled mix transport entries.
+	MixToken string `ini:"mix_token" json:"mix_token"`
 	// KCPBindPort specifies the KCP port that the server listens on. If this
 	// value is 0, the server will not listen for KCP connections. By default,
 	// this value is 0.
@@ -239,6 +243,14 @@ func UnmarshalServerConfFromIni(source any) (ServerCommonConf, error) {
 	if err != nil {
 		return ServerCommonConf{}, err
 	}
+	applyStringAlias(s, &common.BindAddr, "bindAddr")
+	if err = applyIntAlias(s, &common.BindPort, "bindPort"); err != nil {
+		return ServerCommonConf{}, err
+	}
+	if err = applyIntAlias(s, &common.MixBindPort, "mixBindPort"); err != nil {
+		return ServerCommonConf{}, err
+	}
+	applyStringAlias(s, &common.MixToken, "mixToken")
 
 	// allow_ports
 	allowPortStr := s.Key("allow_ports").String()

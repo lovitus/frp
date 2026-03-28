@@ -43,6 +43,16 @@ func Convert_ClientCommonConf_To_v1(conf *ClientCommonConf) *v1.ClientCommonConf
 
 	out.ServerAddr = conf.ServerAddr
 	out.ServerPort = conf.ServerPort
+	out.ClientID = conf.ClientID
+	out.MixBindPort = conf.MixBindPort
+	out.MixToken = conf.MixToken
+	out.MixFallbackHosts = conf.MixFallbackHosts
+	switch {
+	case conf.AllowGatewayTunnels != nil:
+		out.AllowGatewayTunnels = conf.AllowGatewayTunnels
+	case conf.MixAllowGateway != nil:
+		out.AllowGatewayTunnels = conf.MixAllowGateway
+	}
 	out.NatHoleSTUNServer = conf.NatHoleSTUNServer
 	out.Transport.DialServerTimeout = conf.DialServerTimeout
 	out.Transport.DialServerKeepAlive = conf.DialServerKeepAlive
@@ -102,6 +112,8 @@ func Convert_ServerCommonConf_To_v1(conf *ServerCommonConf) *v1.ServerConfig {
 
 	out.BindAddr = conf.BindAddr
 	out.BindPort = conf.BindPort
+	out.MixBindPort = conf.MixBindPort
+	out.MixToken = conf.MixToken
 	out.KCPBindPort = conf.KCPBindPort
 	out.QUICBindPort = conf.QUICBindPort
 	out.Transport.QUIC.KeepalivePeriod = conf.QUICKeepalivePeriod
