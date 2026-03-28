@@ -118,6 +118,24 @@ jobs:
       - name: Build release packages
         run: ./package.sh
 
+      - name: Normalize package filenames to tag version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          shopt -s nullglob
+          cd release/packages
+          for f in frp_*.tar.gz frp_*.zip; do
+            [[ -f "$f" ]] || continue
+            if [[ "$f" =~ ^frp_[^_]+_(.+)$ ]]; then
+              suffix="${BASH_REMATCH[1]}"
+              target="frp_${tag_version}_${suffix}"
+              if [[ "$f" != "$target" ]]; then
+                mv "$f" "$target"
+              fi
+            fi
+          done
+
       - name: Generate release checksums
         shell: bash
         run: |

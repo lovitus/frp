@@ -245,16 +245,19 @@ encode_b64() {
 }
 
 find_asset_url() {
-  local suffix="$1"
-  local archive="frp_${RELEASE_VERSION}_${suffix}.tar.gz"
-  local asset_url
-  asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep "/${archive}$" | head -n 1 || true)"
-  if [[ -z "$asset_url" ]]; then
-    asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -E "/frp_${RELEASE_VERSION}_${suffix}\.tar\.gz$" | head -n 1 || true)"
-  fi
-  if [[ -z "$asset_url" ]]; then
-    echo "No matching asset found for ${suffix} in release ${RELEASE_TAG_RESOLVED}." >&2
-    exit 1
+	local suffix="$1"
+	local archive="frp_${RELEASE_VERSION}_${suffix}.tar.gz"
+	local asset_url
+	asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep "/${archive}$" | head -n 1 || true)"
+	if [[ -z "$asset_url" ]]; then
+		asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -E "/frp_[^/]+_${suffix}\.tar\.gz$" | head -n 1 || true)"
+		if [[ -n "$asset_url" ]]; then
+			echo "Warning: no exact asset for tag ${RELEASE_TAG_RESOLVED}, using ${asset_url##*/}" >&2
+		fi
+	fi
+	if [[ -z "$asset_url" ]]; then
+		echo "No matching asset found for ${suffix} in release ${RELEASE_TAG_RESOLVED}." >&2
+		exit 1
   fi
   printf '%s' "$asset_url"
 }
