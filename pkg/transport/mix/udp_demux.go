@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	udpPeerRouteTTL           = 5 * time.Minute
+	udpPeerRoutePruneInterval = 1 * time.Minute
+)
+
 type packet struct {
 	data []byte
 	addr net.Addr
@@ -105,19 +110,26 @@ func (c *demuxPacketConn) SetWriteDeadline(time.Time) error {
 type UDPDemux struct {
 	conn net.PacketConn
 
-	mu      sync.RWMutex
-	routeFn func([]byte) string
-	peers   map[string]*demuxPacketConn
-	conns   map[string]*demuxPacketConn
-	closed  bool
+	mu                sync.RWMutex
+	routeFn           func([]byte) string
+	peers             map[string]peerRoute
+	conns             map[string]*demuxPacketConn
+	lastPeerPruneTime time.Time
+	closed            bool
+}
+
+type peerRoute struct {
+	child    *demuxPacketConn
+	lastSeen time.Time
 }
 
 func NewUDPDemux(conn net.PacketConn, routeFn func([]byte) string, names ...string) *UDPDemux {
 	d := &UDPDemux{
-		conn:    conn,
-		routeFn: routeFn,
-		peers:   make(map[string]*demuxPacketConn),
-		conns:   make(map[string]*demuxPacketConn, len(names)),
+		conn:              conn,
+		routeFn:           routeFn,
+		peers:             make(map[string]peerRoute),
+		conns:             make(map[string]*demuxPacketConn, len(names)),
+		lastPeerPruneTime: time.Now(),
 	}
 	for _, name := range names {
 		d.conns[name] = &demuxPacketConn{
@@ -143,9 +155,16 @@ func (d *UDPDemux) Serve() error {
 			return err
 		}
 		key := addr.String()
+		now := time.Now()
 
 		d.mu.Lock()
-		child := d.peers[key]
+		if now.Sub(d.lastPeerPruneTime) >= udpPeerRoutePruneInterval {
+			d.pruneStalePeersLocked(now)
+			d.lastPeerPruneTime = now
+		}
+
+		route := d.peers[key]
+		child := route.child
 		if child == nil {
 			name := d.routeFn(buf[:n])
 			child = d.conns[name]
@@ -153,8 +172,10 @@ func (d *UDPDemux) Serve() error {
 				d.mu.Unlock()
 				continue
 			}
-			d.peers[key] = child
+			route.child = child
 		}
+		route.lastSeen = now
+		d.peers[key] = route
 		d.mu.Unlock()
 
 		pkt := packet{
@@ -162,6 +183,14 @@ func (d *UDPDemux) Serve() error {
 			addr: addr,
 		}
 		_ = child.enqueue(pkt)
+	}
+}
+
+func (d *UDPDemux) pruneStalePeersLocked(now time.Time) {
+	for key, route := range d.peers {
+		if now.Sub(route.lastSeen) > udpPeerRouteTTL {
+			delete(d.peers, key)
+		}
 	}
 }
 
