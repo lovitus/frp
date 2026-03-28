@@ -77,7 +77,10 @@ func validateClientMixConfig(c *v1.ClientCommonConfig) error {
 
 func validateGatewayClientIdentity(c *v1.ClientCommonConfig) Warning {
 	if lo.FromPtr(c.AllowGatewayTunnels) && c.ClientID == "" {
-		return fmt.Errorf("allowGatewayTunnels is enabled but clientID is empty; frpc will still start, but this client will not be eligible for dashboard gateway tunnels until clientID is configured")
+		return fmt.Errorf(
+			"allowGatewayTunnels is enabled but clientID is empty; frpc will still start, but this client " +
+				"will not be eligible for dashboard gateway tunnels until clientID is configured",
+		)
 	}
 	return nil
 }

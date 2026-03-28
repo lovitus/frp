@@ -118,7 +118,7 @@ func (m *stubGatewayTunnelManager) Create(tunnel gatewaypkg.Tunnel) (gatewaypkg.
 	if tunnel.ID == "" {
 		tunnel.ID = "generated-id"
 		if m.nextGenerated > 1 {
-			tunnel.ID = tunnel.ID + string(rune('0'+m.nextGenerated-1))
+			tunnel.ID += string(rune('0' + m.nextGenerated - 1))
 		}
 		m.nextGenerated++
 	}

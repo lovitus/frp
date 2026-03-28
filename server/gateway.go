@@ -166,11 +166,11 @@ func (m *GatewayTunnelManager) RefreshStatus(ctx context.Context, tunnelIDs []st
 	for clientKey, ids := range grouped {
 		clientInfo, ok := m.lookupClient(clientKey)
 		if !ok || !clientInfo.Online {
-			m.setClientStatus(clientKey, ids, gatewaypkg.StatusClientOffline, "client is offline", "")
+			m.setClientStatus(clientKey, ids, gatewaypkg.StatusClientOffline, "client is offline")
 			continue
 		}
 		if !clientInfo.AllowGatewayTunnels {
-			m.setClientStatus(clientKey, ids, gatewaypkg.StatusDisabled, "client does not allow gateway tunnels", "")
+			m.setClientStatus(clientKey, ids, gatewaypkg.StatusDisabled, "client does not allow gateway tunnels")
 			continue
 		}
 
@@ -185,7 +185,7 @@ func (m *GatewayTunnelManager) RefreshStatus(ctx context.Context, tunnelIDs []st
 
 func (m *GatewayTunnelManager) HandleClientConnected(clientKey string) {
 	if err := m.SyncClient(clientKey); err != nil {
-		m.setClientStatus(clientKey, nil, gatewaypkg.StatusPending, err.Error(), "")
+		m.setClientStatus(clientKey, nil, gatewaypkg.StatusPending, err.Error())
 	}
 }
 
@@ -225,13 +225,13 @@ func (m *GatewayTunnelManager) HandleStatusResponse(clientKey string, resp *msg.
 
 func (m *GatewayTunnelManager) requestClientStatus(ctx context.Context, clientKey string, ids []string) {
 	if m.sendMessage == nil {
-		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, "status request sender is unavailable", "")
+		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, "status request sender is unavailable")
 		return
 	}
 
 	requestID, err := util.RandID()
 	if err != nil {
-		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, err.Error(), "")
+		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, err.Error())
 		return
 	}
 	waiter := &gatewayStatusWaiter{
@@ -253,7 +253,7 @@ func (m *GatewayTunnelManager) requestClientStatus(ctx context.Context, clientKe
 		RequestID: requestID,
 		TunnelIDs: ids,
 	}); err != nil {
-		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, err.Error(), "")
+		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, err.Error())
 		return
 	}
 
@@ -263,7 +263,7 @@ func (m *GatewayTunnelManager) requestClientStatus(ctx context.Context, clientKe
 	select {
 	case <-waiter.ch:
 	case <-waitCtx.Done():
-		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, "status request timed out", "")
+		m.setClientStatus(clientKey, ids, gatewaypkg.StatusPending, "status request timed out")
 	}
 }
 
@@ -313,7 +313,7 @@ func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.
 	return items
 }
 
-func (m *GatewayTunnelManager) setClientStatus(clientKey string, ids []string, status, message, remoteAddr string) {
+func (m *GatewayTunnelManager) setClientStatus(clientKey string, ids []string, status, message string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -332,7 +332,7 @@ func (m *GatewayTunnelManager) setClientStatus(clientKey string, ids []string, s
 		}
 		tunnel.Status = status
 		tunnel.Message = message
-		tunnel.RemoteAddr = remoteAddr
+		tunnel.RemoteAddr = ""
 		tunnel.UpdatedAt = time.Now()
 	}
 }

@@ -146,6 +146,64 @@ jobs:
           cd release/packages
           sha256sum ./* > frp_sha256_checksums.txt
 
+      - name: Verify package version consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}" python3 - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          import tarfile
+          import tempfile
+          import zipfile
+
+          tag_version = os.environ["TAG_VERSION"]
+          pkg_dir = pathlib.Path("release/packages")
+          archives = sorted(list(pkg_dir.glob("frp_*.tar.gz")) + list(pkg_dir.glob("frp_*.zip")))
+          if not archives:
+            raise SystemExit("no release archives found")
+
+          prefix = f"frp_{tag_version}_"
+          for archive in archives:
+            name = archive.name
+            if not name.startswith(prefix):
+              raise SystemExit(f"asset name mismatch: {name} does not start with {prefix}")
+            if name.endswith(".tar.gz"):
+              with tarfile.open(archive, "r:gz") as tf:
+                members = tf.getmembers()
+                if not members:
+                  raise SystemExit(f"empty tar archive: {name}")
+                root = members[0].name.split("/", 1)[0]
+            elif name.endswith(".zip"):
+              with zipfile.ZipFile(archive, "r") as zf:
+                names = zf.namelist()
+                if not names:
+                  raise SystemExit(f"empty zip archive: {name}")
+                root = names[0].split("/", 1)[0]
+            else:
+              continue
+            expected = name[:-7] if name.endswith(".tar.gz") else name[:-4]
+            if root != expected:
+              raise SystemExit(f"archive root mismatch: {name} has root {root}, expected {expected}")
+
+          linux_pkg = pkg_dir / f"frp_{tag_version}_linux_amd64.tar.gz"
+          if linux_pkg.exists():
+            with tempfile.TemporaryDirectory() as td:
+              tdp = pathlib.Path(td)
+              with tarfile.open(linux_pkg, "r:gz") as tf:
+                tf.extractall(tdp)
+              root = tdp / f"frp_{tag_version}_linux_amd64"
+              frps = root / "frps"
+              if not frps.exists():
+                raise SystemExit(f"linux amd64 frps binary missing in {linux_pkg.name}")
+              out = subprocess.check_output([str(frps), "--version"], text=True).strip()
+              if out != tag_version:
+                raise SystemExit(
+                  f"binary version mismatch in {linux_pkg.name}: got {out}, expected {tag_version}"
+                )
+          PY
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:

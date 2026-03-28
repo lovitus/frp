@@ -73,15 +73,14 @@ func NormalizeDNSServerAddress(server string) (string, error) {
 			return "", fmt.Errorf("dns server should contain both host and port")
 		}
 		return net.JoinHostPort(host, port), nil
-	} else {
-		if ip := net.ParseIP(server); ip != nil {
-			return net.JoinHostPort(server, "53"), nil
-		}
-		if strings.Contains(server, ":") {
-			return "", fmt.Errorf("ipv6 dns server with explicit port should use [addr]:port")
-		}
+	}
+	if ip := net.ParseIP(server); ip != nil {
 		return net.JoinHostPort(server, "53"), nil
 	}
+	if strings.Contains(server, ":") {
+		return "", fmt.Errorf("ipv6 dns server with explicit port should use [addr]:port")
+	}
+	return net.JoinHostPort(server, "53"), nil
 }
 
 func ParseResolvConfServers(path string) []string {
