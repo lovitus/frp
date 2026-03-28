@@ -155,7 +155,7 @@ prompt_password() {
   local label="$1"
   local value
   while true; do
-    if ! value="$(read_interactive_line "${label}: " true)"; then
+    if ! value="$(read_interactive_line "${label}: ")"; then
       return 1
     fi
     value="$(trim "$value")"

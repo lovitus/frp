@@ -130,7 +130,7 @@ prompt_password() {
   local value
   while true; do
     if [[ -n "$default_value" ]]; then
-      if ! value="$(read_interactive_line "${label} [press Enter to use default]: " true)"; then
+      if ! value="$(read_interactive_line "${label} [press Enter to use default]: ")"; then
         return 1
       fi
       value="$(trim "$value")"
@@ -138,7 +138,7 @@ prompt_password() {
         value="$default_value"
       fi
     else
-      if ! value="$(read_interactive_line "${label}: " true)"; then
+      if ! value="$(read_interactive_line "${label}: ")"; then
         return 1
       fi
       value="$(trim "$value")"
