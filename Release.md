@@ -29,6 +29,7 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Updated the Gateway page layout to present runtime tunnel details in a single row (`listen`, `gateway`, `target`, `status`) on desktop for denser scanning.
 * Updated the Gateway stats card so `online / registered` is displayed inline with the primary count while keeping the original visual hierarchy.
 * Updated manual `Refresh` on Gateway page to also refresh the gateway client snapshot and expanded gateway node list in the same request cycle.
+* Added Gateway YAML import/export on the dashboard: export current runtime tunnels as text, import by file or paste, and upsert tunnels by `clientKey + name` without any server-side file path operations.
 
 ## Protocol and Runtime Notes
 

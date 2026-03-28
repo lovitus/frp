@@ -12,6 +12,12 @@
         <ActionButton variant="outline" size="small" @click="fetchData(true)">
           Refresh
         </ActionButton>
+        <ActionButton variant="outline" size="small" @click="openExportDialog">
+          Export YAML
+        </ActionButton>
+        <ActionButton variant="outline" size="small" @click="openImportDialog">
+          Import YAML
+        </ActionButton>
         <ActionButton
           variant="outline"
           size="small"
@@ -208,6 +214,86 @@
     </div>
 
     <BaseDialog
+      v-model="exportDialogVisible"
+      title="Export Gateway Tunnels"
+      width="760px"
+      :append-to-body="true"
+      :is-mobile="isMobile"
+    >
+      <div class="yaml-dialog">
+        <p class="yaml-help">
+          Exported as YAML text only. No server-side file paths are involved.
+        </p>
+        <el-input
+          v-model="exportYAML"
+          type="textarea"
+          :rows="14"
+          readonly
+          class="yaml-textarea"
+        />
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <ActionButton variant="outline" @click="copyExportYAML">
+            Copy
+          </ActionButton>
+          <ActionButton variant="outline" @click="downloadExportYAML">
+            Download .yaml
+          </ActionButton>
+          <ActionButton variant="outline" @click="exportDialogVisible = false">
+            Close
+          </ActionButton>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <BaseDialog
+      v-model="importDialogVisible"
+      title="Import Gateway Tunnels"
+      width="760px"
+      :append-to-body="true"
+      :is-mobile="isMobile"
+    >
+      <div class="yaml-dialog">
+        <p class="yaml-help">
+          Paste YAML or load a local file. Import uses content only and performs
+          upsert by `clientKey + name`.
+        </p>
+        <div class="yaml-file-row">
+          <input
+            ref="importFileInputRef"
+            type="file"
+            accept=".yml,.yaml,.txt,text/yaml,text/plain"
+            class="yaml-file-input"
+            @change="handleImportFileChange"
+          />
+          <ActionButton variant="outline" @click="openImportFilePicker">
+            Choose File
+          </ActionButton>
+        </div>
+        <el-input
+          v-model="importYAML"
+          type="textarea"
+          :rows="14"
+          class="yaml-textarea"
+          placeholder="version: 1&#10;tunnels:&#10;  - name: ssh-main&#10;    protocol: tcp&#10;    bindAddr: 0.0.0.0&#10;    listenPort: 6000&#10;    clientKey: edge-kr-01&#10;    targetHost: 127.0.0.1&#10;    targetPort: 22"
+        />
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <ActionButton variant="outline" @click="importDialogVisible = false">
+            Cancel
+          </ActionButton>
+          <ActionButton :loading="importing" @click="submitImportYAML">
+            Import
+          </ActionButton>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <BaseDialog
       v-model="dialogVisible"
       :title="editingTunnel ? 'Edit Gateway Tunnel' : 'Create Gateway Tunnel'"
       width="720px"
@@ -343,7 +429,9 @@ import { getClients } from '../api/client'
 import {
   createGatewayTunnel,
   deleteGatewayTunnel,
+  exportGatewayTunnels,
   getGatewayTunnels,
+  importGatewayTunnels,
   updateGatewayTunnel,
 } from '../api/gateway'
 import type { GatewayProtocol, GatewayTunnelData } from '../types/gateway'
@@ -368,6 +456,12 @@ const dialogVisible = ref(false)
 const deleteDialogVisible = ref(false)
 const editingTunnel = ref<GatewayTunnelData | null>(null)
 const pendingDelete = ref<GatewayTunnelData | null>(null)
+const exportDialogVisible = ref(false)
+const importDialogVisible = ref(false)
+const exportYAML = ref('')
+const importYAML = ref('')
+const importing = ref(false)
+const importFileInputRef = ref<HTMLInputElement>()
 const formRef = ref<FormInstance>()
 
 const formState = reactive({
@@ -627,6 +721,115 @@ const loadPageSnapshot = async () => {
   }
 }
 
+const openExportDialog = async () => {
+  loading.value = true
+  try {
+    const resp = await exportGatewayTunnels()
+    exportYAML.value = resp.yaml
+    exportDialogVisible.value = true
+  } catch (error: any) {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Failed to export gateway tunnels: ' + error.message,
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+const copyExportYAML = async () => {
+  if (!exportYAML.value.trim()) {
+    ElMessage({ type: 'warning', message: 'Nothing to copy' })
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(exportYAML.value)
+    ElMessage({ type: 'success', message: 'YAML copied to clipboard' })
+  } catch {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Clipboard copy failed, please copy manually',
+    })
+  }
+}
+
+const downloadExportYAML = () => {
+  if (!exportYAML.value.trim()) {
+    ElMessage({ type: 'warning', message: 'Nothing to download' })
+    return
+  }
+  const now = new Date()
+  const dateToken = now
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace('T', '-')
+    .slice(0, 15)
+  const filename = `gateway-tunnels-${dateToken}.yaml`
+  const blob = new Blob([exportYAML.value], { type: 'text/yaml;charset=utf-8' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+const openImportDialog = () => {
+  importDialogVisible.value = true
+}
+
+const openImportFilePicker = () => {
+  importFileInputRef.value?.click()
+}
+
+const handleImportFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) {
+    return
+  }
+  try {
+    importYAML.value = await file.text()
+    ElMessage({ type: 'success', message: `Loaded file: ${file.name}` })
+  } catch {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Failed to read selected file',
+    })
+  } finally {
+    input.value = ''
+  }
+}
+
+const submitImportYAML = async () => {
+  const raw = importYAML.value.trim()
+  if (!raw) {
+    ElMessage({ type: 'warning', message: 'Paste YAML or load a file first' })
+    return
+  }
+
+  importing.value = true
+  try {
+    const result = await importGatewayTunnels({ yaml: raw })
+    ElMessage({
+      type: 'success',
+      message: `Import complete: total ${result.total}, created ${result.created}, updated ${result.updated}`,
+    })
+    importDialogVisible.value = false
+    await fetchData()
+  } catch (error: any) {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Failed to import gateway tunnels: ' + error.message,
+    })
+  } finally {
+    importing.value = false
+  }
+}
+
 const openCreateDialog = () => {
   editingTunnel.value = null
   resetForm()
@@ -748,6 +951,33 @@ onMounted(() => {
 .actions-section {
   display: flex;
   gap: 10px;
+}
+
+.yaml-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.yaml-help {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+
+.yaml-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.yaml-file-input {
+  display: none;
+}
+
+.yaml-textarea :deep(textarea) {
+  font-family: var(--el-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-size: 12px;
 }
 
 .warning-banner {

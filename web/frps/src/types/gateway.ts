@@ -26,3 +26,17 @@ export interface GatewayTunnelPayload {
   targetHost: string
   targetPort: number
 }
+
+export interface GatewayTunnelExportResponse {
+  yaml: string
+}
+
+export interface GatewayTunnelImportPayload {
+  yaml: string
+}
+
+export interface GatewayTunnelImportResponse {
+  total: number
+  created: number
+  updated: number
+}

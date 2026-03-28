@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/fatedier/frp/pkg/config/types"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
@@ -56,6 +58,34 @@ type GatewayTunnelManager interface {
 	Delete(id string) error
 	RefreshStatus(ctx context.Context, tunnelIDs []string)
 	SyncClient(clientKey string) error
+}
+
+type gatewayTunnelYAML struct {
+	Name       string `json:"name" yaml:"name"`
+	Remark     string `json:"remark,omitempty" yaml:"remark,omitempty"`
+	Protocol   string `json:"protocol" yaml:"protocol"`
+	BindAddr   string `json:"bindAddr" yaml:"bindAddr"`
+	ListenPort int    `json:"listenPort" yaml:"listenPort"`
+	ClientKey  string `json:"clientKey" yaml:"clientKey"`
+	TargetHost string `json:"targetHost" yaml:"targetHost"`
+	TargetPort int    `json:"targetPort" yaml:"targetPort"`
+}
+
+type gatewayTunnelExportResponse struct {
+	Version     int                 `json:"version" yaml:"version"`
+	ExportedAt  int64               `json:"exportedAt" yaml:"exportedAt"`
+	TunnelCount int                 `json:"tunnelCount" yaml:"tunnelCount"`
+	Tunnels     []gatewayTunnelYAML `json:"tunnels" yaml:"tunnels"`
+}
+
+type gatewayTunnelImportRequest struct {
+	YAML string `json:"yaml"`
+}
+
+type gatewayTunnelImportResponse struct {
+	Total   int `json:"total"`
+	Created int `json:"created"`
+	Updated int `json:"updated"`
 }
 
 func NewController(
@@ -345,6 +375,134 @@ func (c *Controller) APIDeleteGatewayTunnel(ctx *httppkg.Context) (any, error) {
 	return httppkg.GeneralResponse{Code: 200, Msg: "success"}, nil
 }
 
+func (c *Controller) APIGatewayTunnelExport(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+
+	if ctx.Query("refresh") == "true" {
+		c.gatewayManager.RefreshStatus(ctx.Req.Context(), nil)
+	}
+	items := c.gatewayManager.List()
+	exportItems := make([]gatewayTunnelYAML, 0, len(items))
+	for _, item := range items {
+		exportItems = append(exportItems, gatewayTunnelYAML{
+			Name:       item.Name,
+			Remark:     item.Remark,
+			Protocol:   item.Protocol,
+			BindAddr:   item.BindAddr,
+			ListenPort: item.ListenPort,
+			ClientKey:  item.ClientKey,
+			TargetHost: item.TargetHost,
+			TargetPort: item.TargetPort,
+		})
+	}
+
+	payload := gatewayTunnelExportResponse{
+		Version:     1,
+		ExportedAt:  time.Now().Unix(),
+		TunnelCount: len(exportItems),
+		Tunnels:     exportItems,
+	}
+	content, err := yaml.Marshal(payload)
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusInternalServerError, fmt.Sprintf("marshal gateway tunnel yaml error: %v", err))
+	}
+	return map[string]any{
+		"yaml": string(content),
+	}, nil
+}
+
+func (c *Controller) APIGatewayTunnelImport(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+
+	body, err := ctx.Body()
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read body error: %v", err))
+	}
+	req := gatewayTunnelImportRequest{}
+	if err := jsonx.Unmarshal(body, &req); err != nil {
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
+	}
+	rawYAML := strings.TrimSpace(req.YAML)
+	if rawYAML == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "yaml is required")
+	}
+
+	payload, err := parseGatewayTunnelYAML(rawYAML)
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
+	}
+	if len(payload.Tunnels) == 0 {
+		return nil, httppkg.NewError(http.StatusBadRequest, "no gateway tunnels found in yaml")
+	}
+
+	existing := c.gatewayManager.List()
+	existingIndex := make(map[string]gatewaypkg.Tunnel, len(existing))
+	for _, item := range existing {
+		existingIndex[gatewayTunnelIdentity(item.ClientKey, item.Name)] = item
+	}
+
+	changedIDs := make([]string, 0, len(payload.Tunnels))
+	syncClientKeys := make(map[string]struct{})
+	createdCount := 0
+	updatedCount := 0
+
+	for idx, item := range payload.Tunnels {
+		tunnel := gatewaypkg.Tunnel{
+			Name:       strings.TrimSpace(item.Name),
+			Remark:     strings.TrimSpace(item.Remark),
+			Protocol:   strings.TrimSpace(item.Protocol),
+			BindAddr:   strings.TrimSpace(item.BindAddr),
+			ListenPort: item.ListenPort,
+			ClientKey:  strings.TrimSpace(item.ClientKey),
+			TargetHost: strings.TrimSpace(item.TargetHost),
+			TargetPort: item.TargetPort,
+		}
+		if err := c.validateGatewayTunnelClient(tunnel); err != nil {
+			return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("invalid tunnel at index %d: %v", idx, err))
+		}
+
+		key := gatewayTunnelIdentity(tunnel.ClientKey, tunnel.Name)
+		existingTunnel, ok := existingIndex[key]
+		if ok {
+			updated, err := c.gatewayManager.Update(existingTunnel.ID, tunnel)
+			if err != nil {
+				return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("update tunnel %q for client %q failed: %v", tunnel.Name, tunnel.ClientKey, err))
+			}
+			existingIndex[key] = updated
+			syncClientKeys[updated.ClientKey] = struct{}{}
+			changedIDs = append(changedIDs, updated.ID)
+			updatedCount++
+			continue
+		}
+
+		created, err := c.gatewayManager.Create(tunnel)
+		if err != nil {
+			return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("create tunnel %q for client %q failed: %v", tunnel.Name, tunnel.ClientKey, err))
+		}
+		existingIndex[key] = created
+		syncClientKeys[created.ClientKey] = struct{}{}
+		changedIDs = append(changedIDs, created.ID)
+		createdCount++
+	}
+
+	for clientKey := range syncClientKeys {
+		_ = c.gatewayManager.SyncClient(clientKey)
+	}
+	if len(changedIDs) > 0 {
+		c.gatewayManager.RefreshStatus(ctx.Req.Context(), changedIDs)
+	}
+
+	return gatewayTunnelImportResponse{
+		Total:   len(payload.Tunnels),
+		Created: createdCount,
+		Updated: updatedCount,
+	}, nil
+}
+
 func (c *Controller) parseGatewayTunnelPayload(ctx *httppkg.Context) (gatewaypkg.Tunnel, error) {
 	body, err := ctx.Body()
 	if err != nil {
@@ -354,19 +512,61 @@ func (c *Controller) parseGatewayTunnelPayload(ctx *httppkg.Context) (gatewaypkg
 	if err := jsonx.Unmarshal(body, &tunnel); err != nil {
 		return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
 	}
+	tunnel.Name = strings.TrimSpace(tunnel.Name)
+	tunnel.Remark = strings.TrimSpace(tunnel.Remark)
+	tunnel.Protocol = strings.TrimSpace(tunnel.Protocol)
+	tunnel.BindAddr = strings.TrimSpace(tunnel.BindAddr)
+	tunnel.ClientKey = strings.TrimSpace(tunnel.ClientKey)
+	tunnel.TargetHost = strings.TrimSpace(tunnel.TargetHost)
+	if err := c.validateGatewayTunnelClient(tunnel); err != nil {
+		return gatewaypkg.Tunnel{}, err
+	}
+	return tunnel, nil
+}
+
+func (c *Controller) validateGatewayTunnelClient(tunnel gatewaypkg.Tunnel) error {
 	if c.clientRegistry != nil {
 		client, ok := c.clientRegistry.GetByKey(strings.TrimSpace(tunnel.ClientKey))
 		if !ok {
-			return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "selected gateway client not found")
+			return httppkg.NewError(http.StatusBadRequest, "selected gateway client not found")
 		}
 		if !client.HasStableClientID {
-			return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "selected gateway client must configure clientID")
+			return httppkg.NewError(http.StatusBadRequest, "selected gateway client must configure clientID")
 		}
 		if !client.AllowGatewayTunnels {
-			return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "selected gateway client does not allow gateway tunnels")
+			return httppkg.NewError(http.StatusBadRequest, "selected gateway client does not allow gateway tunnels")
 		}
 	}
-	return tunnel, nil
+	return nil
+}
+
+func parseGatewayTunnelYAML(raw string) (gatewayTunnelExportResponse, error) {
+	var payload gatewayTunnelExportResponse
+	structErr := yaml.Unmarshal([]byte(raw), &payload)
+	if structErr == nil {
+		if payload.Tunnels != nil || payload.Version != 0 || payload.TunnelCount != 0 || payload.ExportedAt != 0 {
+			return payload, nil
+		}
+	}
+
+	var list []gatewayTunnelYAML
+	listErr := yaml.Unmarshal([]byte(raw), &list)
+	if listErr == nil {
+		return gatewayTunnelExportResponse{
+			Version:     1,
+			TunnelCount: len(list),
+			Tunnels:     list,
+		}, nil
+	}
+
+	if structErr != nil {
+		return gatewayTunnelExportResponse{}, fmt.Errorf("parse YAML error: %v", structErr)
+	}
+	return gatewayTunnelExportResponse{}, fmt.Errorf("parse YAML error: expected {tunnels: [...]} or a YAML list of tunnels")
+}
+
+func gatewayTunnelIdentity(clientKey, name string) string {
+	return strings.TrimSpace(clientKey) + "\x00" + strings.TrimSpace(name)
 }
 
 func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*model.ProxyStatsInfo) {

@@ -57,6 +57,13 @@ Each tunnel includes:
 
 The page refreshes tunnel state on load and on create, update, or delete. It does not run a continuous background poll by default.
 
+The page also includes YAML import/export:
+
+- `Export YAML` returns the current runtime gateway tunnel set as YAML text.
+- `Import YAML` accepts pasted YAML text or a browser-selected local file.
+- Import performs upsert by `clientKey + name` (update if existing, create if missing).
+- The dashboard and API only process YAML content. There is no server-side file path read/write.
+
 The page also captures a one-time gateway client snapshot when the page is first loaded:
 
 - `online / registered` gateway client count
@@ -147,6 +154,7 @@ Then create the runtime listener from the frps dashboard:
 ## Known Limits
 
 - Runtime only, no persistence across frps restart.
+- Import is additive/upsert only in this phase. It does not delete tunnels that are absent in the imported YAML.
 - No ACL or target allowlist yet.
 - No batch operations.
 - `bindAddr` is limited to IP literals.

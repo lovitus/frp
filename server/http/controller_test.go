@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -296,4 +297,145 @@ func TestAPICreateGatewayTunnelSurfacesManagerValidationError(t *testing.T) {
 	httpErr, ok := err.(*httppkg.Error)
 	require.True(t, ok)
 	require.Equal(t, "listenPort must be between 1 and 65535", httpErr.Error())
+}
+
+func TestAPIGatewayTunnelExportYAML(t *testing.T) {
+	manager := newStubGatewayTunnelManager()
+	manager.tunnels["t-1"] = gatewaypkg.Tunnel{
+		ID:         "t-1",
+		Name:       "ssh-main",
+		Remark:     "ops",
+		Protocol:   "tcp",
+		BindAddr:   "0.0.0.0",
+		ListenPort: 6000,
+		ClientKey:  "client-a",
+		TargetHost: "127.0.0.1",
+		TargetPort: 22,
+		Status:     gatewaypkg.StatusOnline,
+	}
+	controller := NewController(&v1.ServerConfig{}, nil, nil, manager)
+
+	resp, err := controller.APIGatewayTunnelExport(newGatewayContext(t, "GET", "/api/gateway-tunnels/export", nil, nil))
+	require.NoError(t, err)
+
+	respMap, ok := resp.(map[string]any)
+	require.True(t, ok)
+	rawYAML, ok := respMap["yaml"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, strings.TrimSpace(rawYAML))
+
+	parsed, err := parseGatewayTunnelYAML(rawYAML)
+	require.NoError(t, err)
+	require.Equal(t, 1, parsed.Version)
+	require.Equal(t, 1, parsed.TunnelCount)
+	require.Len(t, parsed.Tunnels, 1)
+	require.Equal(t, "ssh-main", parsed.Tunnels[0].Name)
+	require.Equal(t, "client-a", parsed.Tunnels[0].ClientKey)
+}
+
+func TestAPIGatewayTunnelImportUpsert(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	key := registerClient(t, reg, "client-a", "run-a", true)
+
+	manager := newStubGatewayTunnelManager()
+	manager.tunnels["existing-id"] = gatewaypkg.Tunnel{
+		ID:         "existing-id",
+		Name:       "ssh-main",
+		Protocol:   "tcp",
+		BindAddr:   "0.0.0.0",
+		ListenPort: 6000,
+		ClientKey:  key,
+		TargetHost: "127.0.0.1",
+		TargetPort: 22,
+	}
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+
+	rawYAML := `version: 1
+tunnels:
+  - name: ssh-main
+    remark: changed
+    protocol: tcp
+    bindAddr: 127.0.0.1
+    listenPort: 6000
+    clientKey: ` + key + `
+    targetHost: 127.0.0.1
+    targetPort: 2222
+  - name: dns-new
+    protocol: udp
+    bindAddr: 0.0.0.0
+    listenPort: 5300
+    clientKey: ` + key + `
+    targetHost: 127.0.0.1
+    targetPort: 53
+`
+	body, err := json.Marshal(map[string]string{"yaml": rawYAML})
+	require.NoError(t, err)
+
+	resp, err := controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+
+	result, ok := resp.(gatewayTunnelImportResponse)
+	require.True(t, ok)
+	require.Equal(t, 2, result.Total)
+	require.Equal(t, 1, result.Created)
+	require.Equal(t, 1, result.Updated)
+
+	require.Len(t, manager.tunnels, 2)
+	updated := manager.tunnels["existing-id"]
+	require.Equal(t, 2222, updated.TargetPort)
+	require.Equal(t, "changed", updated.Remark)
+	require.Equal(t, "127.0.0.1", updated.BindAddr)
+	require.Equal(t, []string{key}, manager.syncCalls)
+	require.Len(t, manager.refreshCalls, 1)
+	require.ElementsMatch(t, []string{"existing-id", "generated-id"}, manager.refreshCalls[0])
+}
+
+func TestAPIGatewayTunnelImportRejectsInvalidYAML(t *testing.T) {
+	controller := NewController(&v1.ServerConfig{}, nil, nil, newStubGatewayTunnelManager())
+
+	body, err := json.Marshal(map[string]string{"yaml": "not: [valid"})
+	require.NoError(t, err)
+
+	_, err = controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.Error(t, err)
+	httpErr, ok := err.(*httppkg.Error)
+	require.True(t, ok)
+	require.Contains(t, httpErr.Error(), "parse YAML error")
+}
+
+func TestAPIGatewayTunnelImportSupportsListYAML(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	key := registerClient(t, reg, "client-a", "run-a", true)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, newStubGatewayTunnelManager())
+
+	rawYAML := `- name: ssh-main
+  protocol: tcp
+  bindAddr: 0.0.0.0
+  listenPort: 6000
+  clientKey: ` + key + `
+  targetHost: 127.0.0.1
+  targetPort: 22
+`
+	body, err := json.Marshal(map[string]string{"yaml": rawYAML})
+	require.NoError(t, err)
+
+	resp, err := controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+	result, ok := resp.(gatewayTunnelImportResponse)
+	require.True(t, ok)
+	require.Equal(t, 1, result.Total)
+	require.Equal(t, 1, result.Created)
+	require.Equal(t, 0, result.Updated)
+}
+
+func TestAPIGatewayTunnelImportRejectsEmptyList(t *testing.T) {
+	controller := NewController(&v1.ServerConfig{}, nil, nil, newStubGatewayTunnelManager())
+	body, err := json.Marshal(map[string]string{"yaml": "tunnels: []"})
+	require.NoError(t, err)
+
+	_, err = controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.Error(t, err)
+	httpErr, ok := err.(*httppkg.Error)
+	require.True(t, ok)
+	require.Equal(t, "no gateway tunnels found in yaml", httpErr.Error())
 }
