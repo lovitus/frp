@@ -361,6 +361,102 @@ func TestMixHostFallbackAndFailbackToPrimaryHost(t *testing.T) {
 	require.Equal(t, "tcp", clientSvc.StatusExporter().SelectedProtocol())
 }
 
+func TestMixFailbackProbeRequiresSuccessfulLogin(t *testing.T) {
+	t.Setenv("SHADOWSOCKS_SF_CAPACITY", "-1")
+	restoreMixTiming := clientpkg.SetMixTimingForTesting(50*time.Millisecond, 100*time.Millisecond, 3)
+	defer restoreMixTiming()
+
+	startServerWithAuth := func(mixPort int, token, authToken string) (*Service, context.CancelFunc) {
+		bindPort := getFreePort(t)
+		cfg := &v1.ServerConfig{
+			BindAddr:    "127.0.0.1",
+			BindPort:    bindPort,
+			MixBindPort: mixPort,
+			MixToken:    token,
+		}
+		cfg.Auth.Token = authToken
+		require.NoError(t, cfg.Complete())
+
+		svc, err := NewService(cfg)
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(context.Background())
+		go svc.Run(ctx)
+		t.Cleanup(func() {
+			cancel()
+			_ = svc.Close()
+		})
+		return svc, cancel
+	}
+
+	mixToken := "ss://aes-256-gcm:sspass"
+	primaryPort, releasePrimaryPort := reserveDualStackPort(t)
+	releasePrimaryPort()
+	backupPort, releaseBackupPort := reserveDualStackPort(t)
+	releaseBackupPort()
+
+	primarySvc, _ := startServerWithAuth(primaryPort, mixToken, "primary-auth-token")
+	backupSvc, _ := startServerWithAuth(backupPort, mixToken, "shared-auth-token")
+
+	clientCfg := &v1.ClientCommonConfig{
+		ServerAddr:       "127.0.0.1",
+		MixBindPort:      primaryPort,
+		MixFallbackHosts: fmt.Sprintf("127.0.0.1:%d", backupPort),
+		MixToken:         mixToken,
+		User:             "failback-login-probe",
+		LoginFailExit:    lo.ToPtr(false),
+	}
+	clientCfg.Transport.DialServerTimeout = 1
+	clientCfg.Auth.Token = "shared-auth-token"
+	require.NoError(t, clientCfg.Complete())
+
+	clientSvc, err := clientpkg.NewService(clientpkg.ServiceOptions{
+		Common:                 clientCfg,
+		ConfigSourceAggregator: source.NewAggregator(source.NewConfigSource()),
+	})
+	require.NoError(t, err)
+
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+	defer clientCancel()
+	go clientSvc.Run(clientCtx)
+	t.Cleanup(func() {
+		clientCancel()
+		clientSvc.Close()
+	})
+
+	waitForOnlineProtocol(t, backupSvc, "failback-login-probe", "ss", 20*time.Second)
+
+	var firstConnectedAt time.Time
+	waitForConditionWithin(t, 5*time.Second, func() bool {
+		items := backupSvc.clientRegistry.List()
+		for _, item := range items {
+			if item.User == "failback-login-probe" && item.Online {
+				firstConnectedAt = item.LastConnectedAt
+				return true
+			}
+		}
+		return false
+	})
+
+	time.Sleep(5 * time.Second)
+
+	var lastConnectedAt time.Time
+	waitForConditionWithin(t, 5*time.Second, func() bool {
+		items := backupSvc.clientRegistry.List()
+		for _, item := range items {
+			if item.User == "failback-login-probe" && item.Online {
+				lastConnectedAt = item.LastConnectedAt
+				return true
+			}
+		}
+		return false
+	})
+
+	require.Equal(t, firstConnectedAt, lastConnectedAt, "backup connection should stay stable; failback probe must not switch on connect-only success")
+	require.Equal(t, "ss", clientSvc.StatusExporter().SelectedProtocol())
+
+	_ = primarySvc
+}
+
 func TestMixSharedPortProtocols(t *testing.T) {
 	t.Setenv("SHADOWSOCKS_SF_CAPACITY", "-1")
 

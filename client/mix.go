@@ -435,22 +435,6 @@ func buildMixClientConfig(cfg *v1.ClientCommonConfig, candidate mixDialCandidate
 	return &cloned, nil
 }
 
-func probeMixProtocol(ctx context.Context, cfg *v1.ClientCommonConfig, candidate mixDialCandidate) error {
-	connector, err := newMixProtocolConnector(ctx, cfg, candidate)
-	if err != nil {
-		return err
-	}
-	if err := connector.Open(); err != nil {
-		return err
-	}
-	defer connector.Close()
-	conn, err := connector.Connect()
-	if err != nil {
-		return err
-	}
-	return conn.Close()
-}
-
 func newMixProtocolConnector(ctx context.Context, cfg *v1.ClientCommonConfig, candidate mixDialCandidate) (Connector, error) {
 	clientCfg, err := buildMixClientConfig(cfg, candidate)
 	if err != nil {

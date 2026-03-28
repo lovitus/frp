@@ -484,7 +484,7 @@ func (svr *Service) keepMixFailback() {
 				svr.mixManager.SelectedProtocol(), svr.mixManager.SelectedEndpoint(),
 				candidate.Candidate.Protocol.Protocol, candidate.Candidate.Address())
 			probeCtx, cancel := context.WithTimeout(svr.ctx, time.Duration(svr.common.Transport.DialServerTimeout)*time.Second)
-			err := probeMixProtocol(probeCtx, svr.common, candidate.Candidate)
+			err := svr.probeMixProtocolLogin(probeCtx, candidate.Candidate)
 			cancel()
 			if err != nil {
 				svr.mixManager.recordFailbackProbeFailure(baseIndex, candidate.Index)
@@ -511,6 +511,64 @@ func (svr *Service) keepMixFailback() {
 			svr.mixManager.finishProbe()
 		}
 	}
+}
+
+func (svr *Service) probeMixProtocolLogin(ctx context.Context, candidate mixDialCandidate) error {
+	connector, err := newMixProtocolConnector(ctx, svr.common, candidate)
+	if err != nil {
+		return err
+	}
+	if err := connector.Open(); err != nil {
+		return err
+	}
+	defer connector.Close()
+
+	conn, err := connector.Connect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	hostname, _ := os.Hostname()
+	loginMsg := &msg.Login{
+		Arch:                runtime.GOARCH,
+		Os:                  runtime.GOOS,
+		Hostname:            hostname,
+		PoolCount:           svr.common.Transport.PoolCount,
+		User:                svr.common.User,
+		ClientID:            "",
+		Version:             version.Full(),
+		Timestamp:           time.Now().Unix(),
+		RunID:               "",
+		Metas:               svr.common.Metadatas,
+		SelectedProtocol:    candidate.Protocol.Protocol,
+		AllowGatewayTunnels: false,
+	}
+	if svr.clientSpec != nil {
+		loginMsg.ClientSpec = *svr.clientSpec
+	}
+	if err := svr.auth.Setter.SetLogin(loginMsg); err != nil {
+		return err
+	}
+	if err := msg.WriteMsg(conn, loginMsg); err != nil {
+		return err
+	}
+
+	var loginResp msg.LoginResp
+	timeout := time.Duration(svr.common.Transport.DialServerTimeout) * time.Second
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+	err = msg.ReadMsgInto(conn, &loginResp)
+	_ = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return err
+	}
+	if loginResp.Error != "" {
+		return fmt.Errorf("%s", loginResp.Error)
+	}
+	return nil
 }
 
 func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
