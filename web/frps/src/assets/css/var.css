@@ -32,6 +32,10 @@
   --color-danger-light: #fef0f0;
   --color-info: #909399;
 
+  /* Button colors */
+  --color-btn-primary: #303133;
+  --color-btn-primary-hover: #4a4d5c;
+
   /* Element Plus mapping */
   --el-color-primary: var(--color-primary);
   --el-color-success: var(--color-success);
@@ -99,6 +103,10 @@ html.dark {
   --color-danger-dark: #f87171;
   --color-danger-light: #3d2027;
   --color-info: #888888;
+
+  /* Button colors */
+  --color-btn-primary: #404040;
+  --color-btn-primary-hover: #505050;
 
   /* Dark overrides */
   --el-text-color-regular: var(--color-text-primary);

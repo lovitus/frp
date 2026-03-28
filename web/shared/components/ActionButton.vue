@@ -85,13 +85,13 @@ const handleClick = (event: MouseEvent) => {
   }
 
   &.primary {
-    background: $color-btn-primary;
-    border-color: $color-btn-primary;
+    background: var(--color-btn-primary, $color-text-primary);
+    border-color: var(--color-btn-primary, $color-text-primary);
     color: #fff;
 
     &:hover:not(:disabled) {
-      background: $color-btn-primary-hover;
-      border-color: $color-btn-primary-hover;
+      background: var(--color-btn-primary-hover, $color-primary);
+      border-color: var(--color-btn-primary-hover, $color-primary);
     }
   }
 
