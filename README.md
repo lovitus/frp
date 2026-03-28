@@ -630,6 +630,8 @@ webServer.password = "admin"
 
 Then visit `http://[serverAddr]:7500` to see the dashboard, with username and password both being `admin`.
 
+This fork also adds a simple dashboard auth lockout: 10 failed logins within 1 minute pause authentication for 10 seconds. API requests receive `429`, and browser requests see an automatic 10-second unlock countdown page. This helps slow brute-force attempts, but plaintext HTTP is still unsafe on untrusted networks. Use HTTPS or an outer secure tunnel when exposing the dashboard outside localhost.
+
 Additionally, you can use HTTPS port by using your domains wildcard or normal SSL certificate:
 
 ```toml

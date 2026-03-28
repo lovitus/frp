@@ -143,6 +143,8 @@ allowGatewayTunnels = true
 
 dashboard 可以运行时创建 TCP 或 UDP 监听，并把它转发到指定 gateway client 的固定 `targetHost:targetPort`。这些 tunnel 当前只保存在 frps 进程内存里，frps 重启后会消失。
 
+这个 fork 还给 frps dashboard 增加了一个最简单的认证锁定策略：1 分钟内连续失败 10 次后，认证会暂停 10 秒。API 会返回 `429`，浏览器页面会显示 10 秒倒计时后自动解锁。它只能减缓暴力破解，不能让明文 HTTP 变安全；如果 dashboard 不只监听本机，仍然建议优先使用 HTTPS 或外层安全隧道。
+
 ## 文档
 
 完整文档已经迁移至 [https://gofrp.org](https://gofrp.org)。

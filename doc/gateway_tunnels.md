@@ -99,6 +99,8 @@ Gateway tunnel `bindAddr` is applied only to runtime gateway-managed TCP/UDP lis
 - This feature is opt-in on the client.
 - frps can only target clients that explicitly allow gateway tunnels and expose a stable `clientID`.
 - The server operator can ask the client to connect to `targetHost:targetPort`, so this feature should be enabled only on trusted clients.
+- The frps dashboard now applies a simple auth lockout: 10 failed logins within 1 minute pause authentication for 10 seconds. API requests receive `429`, and browser requests get an unlock countdown page.
+- The lockout is only a brute-force speed bump. It does not protect plaintext HTTP from credential or session capture. Use HTTPS or place the dashboard behind a secure tunnel when it is reachable outside localhost.
 
 ## Examples
 

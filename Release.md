@@ -19,6 +19,7 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Added runtime gateway tunnel management on the frps dashboard so operators can create TCP or UDP listeners that forward through an opted-in frpc client to a fixed target host and port.
 * Added `allowGatewayTunnels` as the canonical frpc opt-in field, while preserving `mixAllowGateway` and `mix_allow_gateway` as compatibility aliases.
 * Added runtime gateway synchronization over the existing control channel, plus status refresh and bind-address support scoped only to gateway-managed listeners.
+* Added a simple dashboard authentication lockout: 10 failed logins within 1 minute pause authentication for 10 seconds, return `429` on API paths, and show a browser countdown page before automatic unlock.
 
 ## Protocol and Runtime Notes
 
@@ -28,11 +29,13 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Gateway tunnels reuse whichever control transport is currently active, including `mix`, and do not add a separate SOCKS layer or extra connection model.
 * Gateway tunnels are runtime-only in this phase. They live in frps memory and are lost on frps restart.
 * `ss-udp` is still out of scope for this phase.
+* Dashboard lockout slows brute-force attempts, but it does not make plaintext HTTP safe. Operators should still use HTTPS or an outer secure tunnel when the dashboard leaves localhost.
 
 ## Validation and Benchmarking
 
 * Added automated parser, client state-machine, server protocol-routing, and end-to-end mix tests.
 * Added automated tests for gateway alias folding, runtime source precedence, gateway sync/status handling, and gateway bind-address annotation resolution.
+* Added automated tests for dashboard auth success, failure delay, temporary lockout, API `429` responses, and automatic unlock behavior.
 * Added automated benchmark coverage for single-protocol stability, short-burst churn, stable mix-primary operation, intermittent fallback, failback, probe overhead, and a repeatable soak scenario.
 * The latest local benchmark summary is documented in `doc/mix_benchmark_results.md`.
 
