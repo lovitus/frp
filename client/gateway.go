@@ -193,10 +193,13 @@ func buildGatewayProxyConfigurer(cfg msg.GatewayTunnelConfig) (v1.ProxyConfigure
 		Name: gatewaypkg.ProxyName(cfg.ID),
 		Type: cfg.Protocol,
 		Annotations: map[string]string{
-			gatewaypkg.AnnotationSourceKey:   gatewaypkg.AnnotationSourceGatewayTunnel,
-			gatewaypkg.AnnotationTunnelIDKey: cfg.ID,
-			gatewaypkg.AnnotationTunnelNameKey: cfg.Name,
-			gatewaypkg.AnnotationBindAddrKey: cfg.BindAddr,
+			gatewaypkg.AnnotationSourceKey:       gatewaypkg.AnnotationSourceGatewayTunnel,
+			gatewaypkg.AnnotationTunnelIDKey:     cfg.ID,
+			gatewaypkg.AnnotationTunnelNameKey:   cfg.Name,
+			gatewaypkg.AnnotationTunnelRemarkKey: cfg.Remark,
+			gatewaypkg.AnnotationTargetHostKey:   cfg.TargetHost,
+			gatewaypkg.AnnotationTargetPortKey:   fmt.Sprintf("%d", cfg.TargetPort),
+			gatewaypkg.AnnotationBindAddrKey:     cfg.BindAddr,
 		},
 		ProxyBackend: v1.ProxyBackend{
 			LocalIP:   cfg.TargetHost,

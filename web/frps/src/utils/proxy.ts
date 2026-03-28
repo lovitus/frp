@@ -62,6 +62,19 @@ class BaseProxy {
   get gatewayTunnelName(): string {
     return this.annotations.get('frp/gateway-tunnel-name') || ''
   }
+
+  get gatewayTunnelRemark(): string {
+    return this.annotations.get('frp/gateway-tunnel-remark') || ''
+  }
+
+  get gatewayTunnelTargetAddr(): string {
+    const host = this.annotations.get('frp/gateway-target-host') || ''
+    const port = this.annotations.get('frp/gateway-target-port') || ''
+    if (!host || !port) {
+      return ''
+    }
+    return `${host}:${port}`
+  }
 }
 
 class TCPProxy extends BaseProxy {

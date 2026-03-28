@@ -11,6 +11,9 @@ const (
 	AnnotationSourceGatewayTunnel = "gateway-tunnel"
 	AnnotationTunnelIDKey         = "frp/gateway-tunnel-id"
 	AnnotationTunnelNameKey       = "frp/gateway-tunnel-name"
+	AnnotationTunnelRemarkKey     = "frp/gateway-tunnel-remark"
+	AnnotationTargetHostKey       = "frp/gateway-target-host"
+	AnnotationTargetPortKey       = "frp/gateway-target-port"
 	AnnotationBindAddrKey         = "frp/gateway-bind-addr"
 
 	StatusPending           = "pending"
