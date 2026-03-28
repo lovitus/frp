@@ -23,8 +23,8 @@
     </div>
 
     <div v-if="eligibleClients.length === 0" class="warning-banner">
-      No eligible gateway clients. Configure `clientID` and enable
-      `allowGatewayTunnels` or `mixAllowGateway` on frpc first.
+      No eligible gateway clients. Gateway tunnels currently require a stable
+      `clientID` plus `allowGatewayTunnels` or `mixAllowGateway` on frpc.
     </div>
 
     <div class="stats-grid">
@@ -91,9 +91,25 @@
         <el-table-column label="Gateway" min-width="180">
           <template #default="{ row }">
             <div class="endpoint-cell">
-              <div>{{ getClientLabel(row.clientKey) }}</div>
+              <div class="gateway-client-head">
+                <span class="gateway-client-name">
+                  {{ getClientLabel(row.clientKey) }}
+                </span>
+                <el-tag
+                  size="small"
+                  :type="getClientOnline(row.clientKey) ? 'success' : 'info'"
+                >
+                  {{ getClientOnline(row.clientKey) ? 'online' : 'offline' }}
+                </el-tag>
+              </div>
+              <div v-if="getClientSubLabel(row.clientKey)" class="endpoint-meta">
+                {{ getClientSubLabel(row.clientKey) }}
+              </div>
+              <div v-if="getClientMetaLine(row.clientKey)" class="endpoint-meta">
+                {{ getClientMetaLine(row.clientKey) }}
+              </div>
               <div class="endpoint-meta">
-                {{ getClientOnline(row.clientKey) ? 'online' : 'offline' }}
+                key {{ row.clientKey }}
               </div>
             </div>
           </template>
@@ -201,13 +217,32 @@
               v-model="formState.clientKey"
               filterable
               placeholder="Select a gateway client"
+              class="gateway-client-select"
             >
               <el-option
                 v-for="client in eligibleClients"
                 :key="client.key"
                 :label="formatClientOption(client)"
                 :value="client.key"
-              />
+              >
+                <div class="client-option">
+                  <div class="gateway-client-head">
+                    <span class="gateway-client-name">
+                      {{ client.displayName }}
+                    </span>
+                    <el-tag size="small" :type="client.online ? 'success' : 'info'">
+                      {{ client.online ? 'online' : 'offline' }}
+                    </el-tag>
+                  </div>
+                  <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
+                    {{ buildClientSubLabel(client) }}
+                  </div>
+                  <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
+                    {{ buildClientMetaLine(client) }}
+                  </div>
+                  <div class="client-option-subtitle">key {{ client.key }}</div>
+                </div>
+              </el-option>
             </el-select>
           </el-form-item>
 
@@ -350,6 +385,21 @@ const eligibleClients = computed(() =>
     .sort((a, b) => a.displayName.localeCompare(b.displayName)),
 )
 
+const buildClientSubLabel = (client: Client) => {
+  return [client.hostname, client.ip].filter(Boolean).join(' • ')
+}
+
+const buildClientMetaLine = (client: Client) => {
+  const parts = []
+  if (client.version) {
+    parts.push(`v${client.version}`)
+  }
+  if (client.selectedProtocol) {
+    parts.push(client.selectedProtocol)
+  }
+  return parts.join(' • ')
+}
+
 const filteredTunnels = computed(() => {
   const query = searchText.value.trim().toLowerCase()
 
@@ -361,7 +411,15 @@ const filteredTunnels = computed(() => {
       if (!query) {
         return true
       }
-      const clientLabel = getClientLabel(tunnel.clientKey).toLowerCase()
+      const clientLabel = [
+        getClientLabel(tunnel.clientKey),
+        getClientSubLabel(tunnel.clientKey),
+        getClientMetaLine(tunnel.clientKey),
+        tunnel.clientKey,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
       return [
         tunnel.name,
         tunnel.remark || '',
@@ -394,12 +452,30 @@ const getClientLabel = (clientKey: string) => {
   return client ? client.displayName : clientKey
 }
 
+const getClientSubLabel = (clientKey: string) => {
+  const client = clientMap.value[clientKey]
+  return client ? buildClientSubLabel(client) : ''
+}
+
+const getClientMetaLine = (clientKey: string) => {
+  const client = clientMap.value[clientKey]
+  return client ? buildClientMetaLine(client) : ''
+}
+
 const getClientOnline = (clientKey: string) => {
   return clientMap.value[clientKey]?.online ?? false
 }
 
 const formatClientOption = (client: Client) => {
-  return `${client.displayName} (${client.online ? 'online' : 'offline'})`
+  return [
+    client.displayName,
+    buildClientSubLabel(client),
+    buildClientMetaLine(client),
+    client.key,
+    client.online ? 'online' : 'offline',
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 const getStatusMeta = (status: string) => {
@@ -670,6 +746,18 @@ onMounted(() => {
   gap: 4px;
 }
 
+.gateway-client-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gateway-client-name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
 .tunnel-name {
   font-weight: 600;
   color: var(--el-text-color-primary);
@@ -709,6 +797,20 @@ onMounted(() => {
 
 .full-width {
   width: 100%;
+}
+
+.client-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.client-option-subtitle {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .dialog-footer {
