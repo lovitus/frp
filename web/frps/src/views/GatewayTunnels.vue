@@ -152,14 +152,6 @@
             </section>
 
             <section class="detail-panel">
-              <div class="detail-label">Target</div>
-              <code class="detail-code">{{ row.targetHost }}:{{ row.targetPort }}</code>
-              <div class="detail-meta">
-                Local endpoint on the gateway client
-              </div>
-            </section>
-
-            <section class="detail-panel">
               <div class="detail-label">Gateway</div>
               <div class="gateway-client-head">
                 <span class="gateway-client-name">
@@ -179,6 +171,14 @@
                 {{ getClientMetaLine(row.clientKey) }}
               </div>
               <div class="detail-meta">key {{ row.clientKey }}</div>
+            </section>
+
+            <section class="detail-panel">
+              <div class="detail-label">Target</div>
+              <code class="detail-code">{{ row.targetHost }}:{{ row.targetPort }}</code>
+              <div class="detail-meta">
+                Local endpoint on the gateway client
+              </div>
             </section>
 
             <section class="detail-panel detail-panel-status">
@@ -908,7 +908,7 @@ onMounted(() => {
 
 .tunnel-card-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   padding: 18px 20px;
 }

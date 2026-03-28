@@ -122,8 +122,10 @@ import {
   clearOfflineProxies as apiClearOfflineProxies,
 } from '../api/proxy'
 import { getServerInfo } from '../api/server'
+import { getGatewayTunnels } from '../api/gateway'
 import { getClients } from '../api/client'
 import { Client } from '../utils/client'
+import type { GatewayTunnelData } from '../types/gateway'
 
 const route = useRoute()
 const router = useRouter()
@@ -289,6 +291,7 @@ const fetchData = async () => {
     } else if (type === 'sudp') {
       proxies.value = json.proxies.map((p: any) => new SUDPProxy(p))
     }
+    await hydrateGatewayProxySummaries(proxies.value)
   } catch (error: any) {
     ElMessage({
       showClose: true,
@@ -297,6 +300,53 @@ const fetchData = async () => {
     })
   } finally {
     loading.value = false
+  }
+}
+
+const gatewayProxyPrefix = '__gateway_tunnel_'
+
+const getGatewayTunnelIDFromProxyName = (name: string) => {
+  if (!name || !name.startsWith(gatewayProxyPrefix)) {
+    return ''
+  }
+  return name.slice(gatewayProxyPrefix.length)
+}
+
+const hydrateGatewayProxySummaries = async (items: BaseProxy[]) => {
+  const gatewayIDs = new Set<string>()
+  for (const item of items) {
+    const id = getGatewayTunnelIDFromProxyName(item.name)
+    if (id) {
+      gatewayIDs.add(id)
+    }
+  }
+  if (gatewayIDs.size === 0) {
+    return
+  }
+
+  let tunnels: GatewayTunnelData[] = []
+  try {
+    tunnels = await getGatewayTunnels(false)
+  } catch {
+    return
+  }
+  const byID = new Map(tunnels.map((item) => [item.id, item]))
+  for (const item of items) {
+    if (item.gatewayTunnelName) {
+      continue
+    }
+    const id = getGatewayTunnelIDFromProxyName(item.name)
+    if (!id) {
+      continue
+    }
+    const tunnel = byID.get(id)
+    if (!tunnel) {
+      continue
+    }
+    item.annotations.set('frp/gateway-tunnel-name', tunnel.name || '')
+    item.annotations.set('frp/gateway-tunnel-remark', tunnel.remark || '')
+    item.annotations.set('frp/gateway-target-host', tunnel.targetHost || '')
+    item.annotations.set('frp/gateway-target-port', String(tunnel.targetPort || ''))
   }
 }
 
