@@ -5,6 +5,8 @@ REPO="${FRP_REPO:-lovitus/frp}"
 RELEASE_TAG="${FRP_RELEASE_TAG:-}"
 RAW_BASE="${FRP_RAW_BASE:-}"
 MODE=""
+INPUT_FD=0
+HAS_TTY_FD=0
 
 usage() {
   cat <<'EOF'
@@ -14,6 +16,16 @@ Usage:
 Environment overrides:
   FRP_REPO, FRP_RELEASE_TAG, FRP_RAW_BASE
 EOF
+}
+
+init_input_fd() {
+  if { exec 9<>/dev/tty; } 2>/dev/null; then
+    INPUT_FD=9
+    HAS_TTY_FD=1
+  else
+    INPUT_FD=0
+    HAS_TTY_FD=0
+  fi
 }
 
 http_get() {
@@ -28,6 +40,17 @@ http_get() {
   fi
   echo "Error: curl or wget is required." >&2
   return 1
+}
+
+read_interactive_line() {
+  local prompt="$1"
+  local value
+  if [[ "$HAS_TTY_FD" -eq 1 ]]; then
+    read -r -p "$prompt" value <&$INPUT_FD || return 1
+  else
+    read -r -p "$prompt" value || return 1
+  fi
+  printf '%s' "$value"
 }
 
 while (($# > 0)); do
@@ -61,8 +84,12 @@ while (($# > 0)); do
 done
 
 if [[ -z "$MODE" ]]; then
+  init_input_fd
   while true; do
-    read -r -p "Deploy frps(server) or frpc(client)? [frps/frpc]: " MODE
+    if ! MODE="$(read_interactive_line "Deploy frps(server) or frpc(client)? [frps/frpc]: ")"; then
+      echo "Input aborted." >&2
+      exit 1
+    fi
     MODE="$(echo "$MODE" | tr '[:upper:]' '[:lower:]' | xargs)"
     if [[ "$MODE" == "frps" || "$MODE" == "frpc" ]]; then
       break

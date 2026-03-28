@@ -7,6 +7,8 @@ RAW_BASE="${FRP_RAW_BASE:-}"
 
 BINARY_NAME="frpc"
 CFG_NAME="frpc.toml"
+INPUT_FD=0
+HAS_TTY_FD=0
 
 SERVER_ADDR="${FRP_SERVER_ADDR:-}"
 MIX_BIND_PORT="${FRP_MIX_BIND_PORT:-7001}"
@@ -35,6 +37,16 @@ Notes:
   - Without mix token parameters, script enters standalone mode and asks all
     required fields.
 EOF
+}
+
+init_input_fd() {
+  if { exec 9<>/dev/tty; } 2>/dev/null; then
+    INPUT_FD=9
+    HAS_TTY_FD=1
+  else
+    INPUT_FD=0
+    HAS_TTY_FD=0
+  fi
 }
 
 http_get() {
@@ -74,24 +86,50 @@ trim() {
   printf '%s' "$s"
 }
 
+read_interactive_line() {
+  local prompt="$1"
+  local secret="${2:-false}"
+  local value
+  if [[ "$HAS_TTY_FD" -eq 1 ]]; then
+    if [[ "$secret" == "true" ]]; then
+      read -r -s -p "$prompt" value <&$INPUT_FD || return 1
+      printf '\n' >&$INPUT_FD
+    else
+      read -r -p "$prompt" value <&$INPUT_FD || return 1
+    fi
+  else
+    if [[ "$secret" == "true" ]]; then
+      read -r -s -p "$prompt" value || return 1
+      echo >&2
+    else
+      read -r -p "$prompt" value || return 1
+    fi
+  fi
+  printf '%s' "$value"
+}
+
 prompt_line() {
   local label="$1"
   local default_value="${2:-}"
   local value
   if [[ -n "$default_value" ]]; then
-    read -r -p "${label} [${default_value}]: " value
+    if ! value="$(read_interactive_line "${label} [${default_value}]: ")"; then
+      return 1
+    fi
     value="$(trim "$value")"
     if [[ -z "$value" ]]; then
       value="$default_value"
     fi
   else
     while true; do
-      read -r -p "${label}: " value
+      if ! value="$(read_interactive_line "${label}: ")"; then
+        return 1
+      fi
       value="$(trim "$value")"
       if [[ -n "$value" ]]; then
         break
       fi
-      echo "This value is required."
+      echo "This value is required." >&2
     done
   fi
   printf '%s' "$value"
@@ -102,12 +140,14 @@ prompt_port() {
   local default_value="$2"
   local value
   while true; do
-    value="$(prompt_line "$label" "$default_value")"
+    if ! value="$(prompt_line "$label" "$default_value")"; then
+      return 1
+    fi
     if [[ "$value" =~ ^[0-9]+$ ]] && ((value >= 1 && value <= 65535)); then
       printf '%s' "$value"
       return 0
     fi
-    echo "Invalid port '${value}'. Expected 1..65535."
+    echo "Invalid port '${value}'. Expected 1..65535." >&2
   done
 }
 
@@ -115,18 +155,15 @@ prompt_password() {
   local label="$1"
   local value
   while true; do
-    if [[ -t 0 ]]; then
-      read -r -s -p "${label}: " value || true
-      echo
-    else
-      read -r -p "${label}: " value || true
+    if ! value="$(read_interactive_line "${label}: " true)"; then
+      return 1
     fi
     value="$(trim "$value")"
     if [[ -n "$value" ]]; then
       printf '%s' "$value"
       return 0
     fi
-    echo "Password cannot be empty."
+    echo "Password cannot be empty." >&2
   done
 }
 
@@ -341,6 +378,7 @@ if [[ -n "$MIX_TOKEN_B64" ]]; then
 fi
 
 echo "Repo: ${REPO}"
+init_input_fd
 detect_platform
 echo "Detected platform: ${DETECTED_OS}_${DETECTED_ARCH}"
 resolve_release_json
@@ -373,17 +411,32 @@ chmod +x "./${BINARY_NAME}"
 if [[ -z "$MIX_TOKEN" ]]; then
   echo
   echo "Configure frpc (standalone mode, press Enter to accept defaults)"
-  MIX_BIND_PORT="$(prompt_port "mixBindPort" "${MIX_BIND_PORT}")"
-  setup_password="$(prompt_password "Connection password (used for ss/kcp/ssh)")"
+  if ! MIX_BIND_PORT="$(prompt_port "mixBindPort" "${MIX_BIND_PORT}")"; then
+    echo "Input aborted." >&2
+    exit 1
+  fi
+  if ! setup_password="$(prompt_password "Connection password (used for ss/kcp/ssh)")"; then
+    echo "Input aborted." >&2
+    exit 1
+  fi
   MIX_TOKEN="$(build_default_mix_token "${setup_password}")"
 else
   echo
   echo "Configure frpc (preset mode from frps command)"
-  MIX_BIND_PORT="$(prompt_port "mixBindPort" "${MIX_BIND_PORT}")"
+  if ! MIX_BIND_PORT="$(prompt_port "mixBindPort" "${MIX_BIND_PORT}")"; then
+    echo "Input aborted." >&2
+    exit 1
+  fi
 fi
 
-SERVER_ADDR="$(prompt_line "serverAddr (frps IP/domain)" "${SERVER_ADDR}")"
-CLIENT_ID="$(prompt_line "clientID" "${CLIENT_ID}")"
+if ! SERVER_ADDR="$(prompt_line "serverAddr (frps IP/domain)" "${SERVER_ADDR}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
+if ! CLIENT_ID="$(prompt_line "clientID" "${CLIENT_ID}")"; then
+  echo "Input aborted." >&2
+  exit 1
+fi
 
 generate_config
 verify_and_smoke_run
