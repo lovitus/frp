@@ -50,6 +50,7 @@ type MixConnectorManager struct {
 	candidates []mixDialCandidate
 
 	activeIndex    int
+	failIndex      int
 	failCount      int
 	lastFailure    time.Time
 	lastSwitchTime time.Time
@@ -85,6 +86,7 @@ func NewMixConnectorManager(cfg *v1.ClientCommonConfig) (*MixConnectorManager, e
 	log.Infof("mix init, endpoints %v, protocols %v, candidate count [%d]", endpointLabels, names, len(candidates))
 	return &MixConnectorManager{
 		candidates: candidates,
+		failIndex:  -1,
 	}, nil
 }
 
@@ -146,6 +148,7 @@ func (m *MixConnectorManager) recordDialSuccess(index int) string {
 		m.activeIndex = index
 		m.lastSwitchTime = time.Now()
 	}
+	m.failIndex = -1
 	m.failCount = 0
 	m.lastFailure = time.Time{}
 	m.switching = false
@@ -158,7 +161,11 @@ func (m *MixConnectorManager) recordDialFailure(index int) (int, *mixDialCandida
 	defer m.mu.Unlock()
 
 	if index != m.activeIndex {
-		return m.failCount, nil
+		return 0, nil
+	}
+	if m.failIndex != index {
+		m.failIndex = index
+		m.failCount = 0
 	}
 	m.failCount++
 	m.lastFailure = time.Now()
@@ -174,6 +181,7 @@ func (m *MixConnectorManager) recordDialFailure(index int) (int, *mixDialCandida
 		nextIndex = 0
 	}
 	m.activeIndex = nextIndex
+	m.failIndex = -1
 	m.failCount = 0
 	m.lastFailure = time.Time{}
 	m.lastSwitchTime = time.Now()
@@ -225,6 +233,7 @@ func (m *MixConnectorManager) switchToPreferred(baseIndex, targetIndex int) bool
 		return false
 	}
 	m.activeIndex = targetIndex
+	m.failIndex = -1
 	m.failCount = 0
 	m.lastFailure = time.Time{}
 	m.lastSwitchTime = time.Now()

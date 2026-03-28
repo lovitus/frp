@@ -32,6 +32,18 @@ func newHostFallbackMixManager(t *testing.T) *MixConnectorManager {
 	return manager
 }
 
+func newTwoHostThreeProtocolMixManager(t *testing.T) *MixConnectorManager {
+	t.Helper()
+	manager, err := NewMixConnectorManager(&v1.ClientCommonConfig{
+		ServerAddr:       "10.20.0.64",
+		MixBindPort:      7001,
+		MixFallbackHosts: "10.20.0.65",
+		MixToken:         "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://frp:sshpass",
+	})
+	require.NoError(t, err)
+	return manager
+}
+
 func TestMixManagerFallbackAfterThreeFailures(t *testing.T) {
 	manager := newTestMixManager(t)
 
@@ -119,6 +131,69 @@ func TestMixManagerFallbackWrapsAcrossHostsToFirstCandidate(t *testing.T) {
 	require.Equal(t, "10.20.0.64:7001", fallback.Address())
 	require.Equal(t, v1.MixProtocolKCP, fallback.Protocol.Protocol)
 	require.Equal(t, 0, manager.CurrentActiveIndex())
+}
+
+func TestMixManagerActiveCandidateTransientFailureAndRecovery(t *testing.T) {
+	manager := newTwoHostThreeProtocolMixManager(t)
+	require.Len(t, manager.candidates, 6)
+
+	manager.mu.Lock()
+	manager.activeIndex = 3 // second host + first protocol.
+	manager.mu.Unlock()
+
+	failCount, fallback := manager.recordDialFailure(3)
+	require.Equal(t, 1, failCount)
+	require.Nil(t, fallback)
+	require.Equal(t, 3, manager.CurrentActiveIndex())
+
+	failCount, fallback = manager.recordDialFailure(3)
+	require.Equal(t, 2, failCount)
+	require.Nil(t, fallback)
+	require.Equal(t, 3, manager.CurrentActiveIndex())
+
+	manager.recordDialSuccess(3)
+	failCount, fallback = manager.recordDialFailure(3)
+	require.Equal(t, 1, failCount)
+	require.Nil(t, fallback)
+	require.Equal(t, 3, manager.CurrentActiveIndex())
+}
+
+func TestMixManagerFallbackFromFourthCandidateMovesToFifth(t *testing.T) {
+	manager := newTwoHostThreeProtocolMixManager(t)
+	require.Len(t, manager.candidates, 6)
+
+	manager.mu.Lock()
+	manager.activeIndex = 3 // second host + first protocol.
+	manager.mu.Unlock()
+
+	failCount, fallback := manager.recordDialFailure(3)
+	require.Equal(t, 1, failCount)
+	require.Nil(t, fallback)
+	failCount, fallback = manager.recordDialFailure(3)
+	require.Equal(t, 2, failCount)
+	require.Nil(t, fallback)
+	failCount, fallback = manager.recordDialFailure(3)
+	require.Equal(t, mixFallbackThreshold, failCount)
+	require.NotNil(t, fallback)
+	require.Equal(t, 4, manager.CurrentActiveIndex())
+	require.Equal(t, manager.candidates[4].Address(), fallback.Address())
+	require.Equal(t, manager.candidates[4].Protocol.Protocol, fallback.Protocol.Protocol)
+}
+
+func TestMixManagerStaleFailureDoesNotUseCurrentFailCount(t *testing.T) {
+	manager := newTestMixManager(t)
+
+	failCount, fallback := manager.recordDialFailure(0)
+	require.Equal(t, 1, failCount)
+	require.Nil(t, fallback)
+
+	manager.mu.Lock()
+	manager.activeIndex = 1
+	manager.mu.Unlock()
+
+	failCount, fallback = manager.recordDialFailure(0)
+	require.Equal(t, 0, failCount)
+	require.Nil(t, fallback)
 }
 
 func TestMixManagerBuildsHostAndProtocolCandidateOrder(t *testing.T) {
