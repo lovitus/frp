@@ -195,6 +195,7 @@ func buildGatewayProxyConfigurer(cfg msg.GatewayTunnelConfig) (v1.ProxyConfigure
 		Annotations: map[string]string{
 			gatewaypkg.AnnotationSourceKey:   gatewaypkg.AnnotationSourceGatewayTunnel,
 			gatewaypkg.AnnotationTunnelIDKey: cfg.ID,
+			gatewaypkg.AnnotationTunnelNameKey: cfg.Name,
 			gatewaypkg.AnnotationBindAddrKey: cfg.BindAddr,
 		},
 		ProxyBackend: v1.ProxyBackend{

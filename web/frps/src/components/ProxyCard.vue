@@ -9,6 +9,11 @@
           }}</span>
         </div>
 
+        <div v-if="proxy.gatewayTunnelName" class="proxy-alias">
+          <span class="alias-label">Gateway Tunnel:</span>
+          <span class="alias-value">{{ proxy.gatewayTunnelName }}</span>
+        </div>
+
         <div class="card-meta">
           <span v-if="proxy.port" class="meta-item">
             <span class="meta-label">Port:</span>
@@ -123,6 +128,28 @@ const proxyLink = computed(() => {
   font-weight: 600;
   color: var(--el-text-color-primary);
   line-height: 1.4;
+}
+
+.proxy-alias {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  line-height: 1.4;
+}
+
+.alias-label {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.alias-value {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .type-tag {

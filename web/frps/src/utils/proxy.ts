@@ -58,6 +58,10 @@ class BaseProxy {
     this.multiplexer = ''
     this.routeByHTTPUser = ''
   }
+
+  get gatewayTunnelName(): string {
+    return this.annotations.get('frp/gateway-tunnel-name') || ''
+  }
 }
 
 class TCPProxy extends BaseProxy {

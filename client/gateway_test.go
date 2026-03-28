@@ -27,6 +27,7 @@ func TestBuildGatewayProxyConfigurerAddsGatewayAnnotations(t *testing.T) {
 	require.Equal(t, gatewaypkg.ProxyName("tun-1"), base.Name)
 	require.Equal(t, gatewaypkg.AnnotationSourceGatewayTunnel, base.Annotations[gatewaypkg.AnnotationSourceKey])
 	require.Equal(t, "tun-1", base.Annotations[gatewaypkg.AnnotationTunnelIDKey])
+	require.Equal(t, "db", base.Annotations[gatewaypkg.AnnotationTunnelNameKey])
 	require.Equal(t, "127.0.0.1", base.Annotations[gatewaypkg.AnnotationBindAddrKey])
 	require.Equal(t, "127.0.0.1", base.LocalIP)
 	require.Equal(t, 5432, base.LocalPort)

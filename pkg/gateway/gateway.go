@@ -10,6 +10,7 @@ const (
 	AnnotationSourceKey           = "frp/runtime-source"
 	AnnotationSourceGatewayTunnel = "gateway-tunnel"
 	AnnotationTunnelIDKey         = "frp/gateway-tunnel-id"
+	AnnotationTunnelNameKey       = "frp/gateway-tunnel-name"
 	AnnotationBindAddrKey         = "frp/gateway-bind-addr"
 
 	StatusPending           = "pending"
