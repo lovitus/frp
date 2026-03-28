@@ -104,7 +104,7 @@ if [[ "$MODE" != "frps" && "$MODE" != "frpc" ]]; then
 fi
 
 if [[ -z "$RAW_BASE" ]]; then
-  RAW_BASE="https://raw.githubusercontent.com/${REPO}/dev/hack/quick-deploy"
+  RAW_BASE="https://raw.githubusercontent.com/${REPO}/codex/mix-transport-release/hack/quick-deploy"
 fi
 
 TARGET_SCRIPT="install-${MODE}.sh"

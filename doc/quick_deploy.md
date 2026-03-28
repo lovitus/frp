@@ -5,13 +5,13 @@ This fork includes interactive deployment scripts for fast bootstrap on Unix-lik
 ## Entry Script
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/dev/hack/quick-deploy/install.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
 ```
 
 Or:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lovitus/frp/dev/hack/quick-deploy/install.sh | bash -
+curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
 ```
 
 The script asks whether to deploy `frps` or `frpc`.
