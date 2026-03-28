@@ -140,9 +140,10 @@ type Service struct {
 
 	// aggregator manages multiple configuration sources.
 	// When set, the service watches for config changes and reloads automatically.
-	aggregator   *source.Aggregator
-	configSource *source.ConfigSource
-	storeSource  *source.StoreSource
+	aggregator    *source.Aggregator
+	configSource  *source.ConfigSource
+	runtimeSource *source.ConfigSource
+	storeSource   *source.StoreSource
 
 	unsafeFeatures *security.UnsafeFeatures
 
@@ -159,6 +160,7 @@ type Service struct {
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 	handleWorkConnCb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
 	mixManager       *MixConnectorManager
+	gatewayManager   *GatewayTunnelManager
 	selectedProtoMu  sync.RWMutex
 	selectedProto    string
 }
@@ -190,7 +192,12 @@ func NewService(options ServiceOptions) (*Service, error) {
 	}
 
 	configSource := options.ConfigSourceAggregator.ConfigSource()
+	runtimeSource := options.ConfigSourceAggregator.RuntimeSource()
 	storeSource := options.ConfigSourceAggregator.StoreSource()
+	if runtimeSource == nil {
+		runtimeSource = source.NewConfigSource()
+		options.ConfigSourceAggregator.SetRuntimeSource(runtimeSource)
+	}
 
 	proxyCfgs, visitorCfgs, loadErr := options.ConfigSourceAggregator.Load()
 	if loadErr != nil {
@@ -224,11 +231,13 @@ func NewService(options ServiceOptions) (*Service, error) {
 		clientSpec:       options.ClientSpec,
 		aggregator:       options.ConfigSourceAggregator,
 		configSource:     configSource,
+		runtimeSource:    runtimeSource,
 		storeSource:      storeSource,
 		connectorCreator: options.ConnectorCreator,
 		handleWorkConnCb: options.HandleWorkConnCb,
 		mixManager:       mixManager,
 	}
+	s.gatewayManager = NewGatewayTunnelManager(s, runtimeSource, lo.FromPtr(options.Common.AllowGatewayTunnels))
 
 	if webServer != nil {
 		webServer.RouteRegister(s.registerRouteHandlers)
@@ -371,16 +380,17 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 	hostname, _ := os.Hostname()
 
 	loginMsg := &msg.Login{
-		Arch:      runtime.GOARCH,
-		Os:        runtime.GOOS,
-		Hostname:  hostname,
-		PoolCount: svr.common.Transport.PoolCount,
-		User:      svr.common.User,
-		ClientID:  svr.common.ClientID,
-		Version:   version.Full(),
-		Timestamp: time.Now().Unix(),
-		RunID:     svr.runID,
-		Metas:     svr.common.Metadatas,
+		Arch:                runtime.GOARCH,
+		Os:                  runtime.GOOS,
+		Hostname:            hostname,
+		PoolCount:           svr.common.Transport.PoolCount,
+		User:                svr.common.User,
+		ClientID:            svr.common.ClientID,
+		Version:             version.Full(),
+		Timestamp:           time.Now().Unix(),
+		RunID:               svr.runID,
+		Metas:               svr.common.Metadatas,
+		AllowGatewayTunnels: lo.FromPtr(svr.common.AllowGatewayTunnels),
 	}
 	if connectorWithProtocol, ok := connector.(interface{ SelectedProtocol() string }); ok {
 		loginMsg.SelectedProtocol = connectorWithProtocol.SelectedProtocol()
@@ -533,6 +543,7 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 			return false, err
 		}
 		ctl.SetInWorkConnCallback(svr.handleWorkConnCb)
+		ctl.SetGatewayTunnelManager(svr.gatewayManager)
 
 		ctl.Run(proxyCfgs, visitorCfgs)
 		// close and replace previous control

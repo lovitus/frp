@@ -4,6 +4,7 @@ import Clients from '../views/Clients.vue'
 import ClientDetail from '../views/ClientDetail.vue'
 import Proxies from '../views/Proxies.vue'
 import ProxyDetail from '../views/ProxyDetail.vue'
+import GatewayTunnels from '../views/GatewayTunnels.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -30,6 +31,11 @@ const router = createRouter({
       path: '/proxies/:type?',
       name: 'Proxies',
       component: Proxies,
+    },
+    {
+      path: '/gateway-tunnels',
+      name: 'GatewayTunnels',
+      component: GatewayTunnels,
     },
     {
       path: '/proxy/:name',

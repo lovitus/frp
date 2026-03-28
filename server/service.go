@@ -122,7 +122,8 @@ type Service struct {
 	// web server for dashboard UI and apis
 	webServer *httppkg.Server
 
-	sshTunnelGateway *ssh.Gateway
+	sshTunnelGateway     *ssh.Gateway
+	gatewayTunnelManager *GatewayTunnelManager
 
 	// Auth runtime and encryption materials
 	auth *auth.ServerAuth
@@ -184,6 +185,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		cfg:               cfg,
 		ctx:               context.Background(),
 	}
+	svr.gatewayTunnelManager = NewGatewayTunnelManager(svr.lookupClientByKey, svr.sendMessageToClientKey)
 	if webServer != nil {
 		webServer.RouteRegister(svr.registerRouteHandlers)
 	}
@@ -659,7 +661,7 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		remoteAddr = host
 	}
-	_, conflict := svr.clientRegistry.Register(
+	clientKey, conflict := svr.clientRegistry.Register(
 		loginMsg.User,
 		loginMsg.ClientID,
 		loginMsg.RunID,
@@ -667,14 +669,22 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 		loginMsg.Version,
 		remoteAddr,
 		loginMsg.SelectedProtocol,
+		loginMsg.AllowGatewayTunnels,
 	)
 	if conflict {
 		svr.ctlManager.Del(loginMsg.RunID, ctl)
 		ctl.Close()
 		return fmt.Errorf("client_id [%s] for user [%s] is already online", loginMsg.ClientID, loginMsg.User)
 	}
+	ctl.SetClientKey(clientKey)
+	if svr.gatewayTunnelManager != nil {
+		ctl.SetGatewayTunnelStatusHandler(svr.gatewayTunnelManager.HandleStatusResponse)
+	}
 
 	ctl.Start()
+	if svr.gatewayTunnelManager != nil {
+		svr.gatewayTunnelManager.HandleClientConnected(clientKey)
+	}
 
 	// for statistics
 	metrics.Server.NewClient(loginMsg.SelectedProtocol)
@@ -685,6 +695,25 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 		svr.ctlManager.Del(loginMsg.RunID, ctl)
 	}()
 	return nil
+}
+
+func (svr *Service) lookupClientByKey(key string) (registry.ClientInfo, bool) {
+	return svr.clientRegistry.GetByKey(key)
+}
+
+func (svr *Service) sendMessageToClientKey(clientKey string, m msg.Message) error {
+	info, ok := svr.clientRegistry.GetByKey(clientKey)
+	if !ok {
+		return fmt.Errorf("client %q not found", clientKey)
+	}
+	if !info.Online || info.RunID == "" {
+		return fmt.Errorf("client %q is offline", clientKey)
+	}
+	ctl, ok := svr.ctlManager.GetByID(info.RunID)
+	if !ok {
+		return fmt.Errorf("client %q control not found", clientKey)
+	}
+	return ctl.SendMessage(m)
 }
 
 // RegisterWorkConn register a new work connection to control and proxies need it.

@@ -27,6 +27,7 @@ import (
 	libio "github.com/fatedier/golib/io"
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
+	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/proto/udp"
 	"github.com/fatedier/frp/pkg/util/limit"
@@ -89,7 +90,8 @@ func (pxy *UDPProxy) Run() (remoteAddr string, err error) {
 
 	remoteAddr = fmt.Sprintf(":%d", pxy.realBindPort)
 	pxy.cfg.RemotePort = pxy.realBindPort
-	addr, errRet := net.ResolveUDPAddr("udp", net.JoinHostPort(pxy.serverCfg.ProxyBindAddr, strconv.Itoa(pxy.realBindPort)))
+	bindAddr := gatewaypkg.ResolveBindAddr(pxy.cfg.GetBaseConfig().Annotations, pxy.serverCfg.ProxyBindAddr)
+	addr, errRet := net.ResolveUDPAddr("udp", net.JoinHostPort(bindAddr, strconv.Itoa(pxy.realBindPort)))
 	if errRet != nil {
 		err = errRet
 		return

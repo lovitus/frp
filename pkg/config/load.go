@@ -33,6 +33,7 @@ import (
 	"github.com/fatedier/frp/pkg/config/legacy"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
+	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/util/jsonx"
 	"github.com/fatedier/frp/pkg/util/util"
@@ -450,7 +451,7 @@ func FilterClientConfigurers(
 	if len(common.Start) > 0 {
 		startSet := sets.New(common.Start...)
 		proxyCfgs = lo.Filter(proxyCfgs, func(c v1.ProxyConfigurer, _ int) bool {
-			return startSet.Has(c.GetBaseConfig().Name)
+			return startSet.Has(c.GetBaseConfig().Name) || gatewaypkg.IsManagedRuntime(c.GetBaseConfig().Annotations)
 		})
 		visitorCfgs = lo.Filter(visitorCfgs, func(c v1.VisitorConfigurer, _ int) bool {
 			return startSet.Has(c.GetBaseConfig().Name)

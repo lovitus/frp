@@ -72,6 +72,8 @@ vhostHTTPSPort = 443
 
 # Configure the web server to enable the dashboard for frps.
 # dashboard is available only if webServer.port is set.
+# The runtime Gateway page introduced by this fork also lives under this dashboard
+# and stores its tunnel definitions in memory only.
 webServer.addr = "127.0.0.1"
 webServer.port = 7500
 webServer.user = "admin"

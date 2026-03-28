@@ -22,18 +22,20 @@ import (
 
 // ClientInfo captures metadata about a connected frpc instance.
 type ClientInfo struct {
-	Key              string
-	User             string
-	RawClientID      string
-	RunID            string
-	Hostname         string
-	IP               string
-	Version          string
-	SelectedProtocol string
-	FirstConnectedAt time.Time
-	LastConnectedAt  time.Time
-	DisconnectedAt   time.Time
-	Online           bool
+	Key                 string
+	User                string
+	RawClientID         string
+	RunID               string
+	Hostname            string
+	IP                  string
+	Version             string
+	SelectedProtocol    string
+	AllowGatewayTunnels bool
+	HasStableClientID   bool
+	FirstConnectedAt    time.Time
+	LastConnectedAt     time.Time
+	DisconnectedAt      time.Time
+	Online              bool
 }
 
 // ClientRegistry keeps track of active clients keyed by "{user}.{clientID}" (runID fallback when raw clientID is empty).
@@ -52,7 +54,16 @@ func NewClientRegistry() *ClientRegistry {
 }
 
 // Register stores/updates metadata for a client and returns the registry key plus whether it conflicts with an online client.
-func (cr *ClientRegistry) Register(user, rawClientID, runID, hostname, version, remoteAddr, selectedProtocol string) (key string, conflict bool) {
+func (cr *ClientRegistry) Register(
+	user,
+	rawClientID,
+	runID,
+	hostname,
+	version,
+	remoteAddr,
+	selectedProtocol string,
+	allowGatewayTunnels bool,
+) (key string, conflict bool) {
 	if runID == "" {
 		return "", false
 	}
@@ -90,6 +101,8 @@ func (cr *ClientRegistry) Register(user, rawClientID, runID, hostname, version, 
 	info.IP = remoteAddr
 	info.Version = version
 	info.SelectedProtocol = selectedProtocol
+	info.AllowGatewayTunnels = allowGatewayTunnels
+	info.HasStableClientID = rawClientID != ""
 	if info.FirstConnectedAt.IsZero() {
 		info.FirstConnectedAt = now
 	}

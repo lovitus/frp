@@ -61,6 +61,12 @@ type ClientCommonConfig struct {
 	MixFallbackHosts string `json:"mixFallbackHosts,omitempty"`
 	// MixFallbackHostsLegacy accepts snake_case config.
 	MixFallbackHostsLegacy string `json:"mix_fallback_hosts,omitempty"`
+	// AllowGatewayTunnels opts this client into server-managed runtime gateway tunnels.
+	AllowGatewayTunnels *bool `json:"allowGatewayTunnels,omitempty"`
+	// MixAllowGateway keeps backward compatibility with the earlier mix-scoped naming.
+	MixAllowGateway *bool `json:"mixAllowGateway,omitempty"`
+	// MixAllowGatewayLegacy accepts snake_case config for the legacy name.
+	MixAllowGatewayLegacy *bool `json:"mix_allow_gateway,omitempty"`
 	// STUN server to help penetrate NAT hole.
 	NatHoleSTUNServer string `json:"natHoleStunServer,omitempty"`
 	// DNSServer specifies a DNS server address for FRPC to use. If this value
@@ -106,6 +112,16 @@ func (c *ClientCommonConfig) Complete() error {
 	}
 	if c.MixFallbackHosts == "" {
 		c.MixFallbackHosts = c.MixFallbackHostsLegacy
+	}
+	if c.AllowGatewayTunnels == nil {
+		switch {
+		case c.MixAllowGateway != nil:
+			c.AllowGatewayTunnels = c.MixAllowGateway
+		case c.MixAllowGatewayLegacy != nil:
+			c.AllowGatewayTunnels = c.MixAllowGatewayLegacy
+		default:
+			c.AllowGatewayTunnels = lo.ToPtr(false)
+		}
 	}
 	c.ServerAddr = util.EmptyOr(c.ServerAddr, "0.0.0.0")
 	c.ServerPort = util.EmptyOr(c.ServerPort, 7000)

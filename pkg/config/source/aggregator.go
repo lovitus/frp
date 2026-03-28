@@ -28,8 +28,9 @@ import (
 type Aggregator struct {
 	mu sync.RWMutex
 
-	configSource *ConfigSource
-	storeSource  *StoreSource
+	configSource  *ConfigSource
+	runtimeSource *ConfigSource
+	storeSource   *StoreSource
 }
 
 func NewAggregator(configSource *ConfigSource) *Aggregator {
@@ -48,6 +49,13 @@ func (a *Aggregator) SetStoreSource(storeSource *StoreSource) {
 	a.storeSource = storeSource
 }
 
+func (a *Aggregator) SetRuntimeSource(runtimeSource *ConfigSource) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.runtimeSource = runtimeSource
+}
+
 func (a *Aggregator) ConfigSource() *ConfigSource {
 	return a.configSource
 }
@@ -56,10 +64,17 @@ func (a *Aggregator) StoreSource() *StoreSource {
 	return a.storeSource
 }
 
+func (a *Aggregator) RuntimeSource() *ConfigSource {
+	return a.runtimeSource
+}
+
 func (a *Aggregator) getSourcesLocked() []Source {
-	sources := make([]Source, 0, 2)
+	sources := make([]Source, 0, 3)
 	if a.configSource != nil {
 		sources = append(sources, a.configSource)
+	}
+	if a.runtimeSource != nil {
+		sources = append(sources, a.runtimeSource)
 	}
 	if a.storeSource != nil {
 		sources = append(sources, a.storeSource)

@@ -36,7 +36,7 @@ func (svr *Service) registerRouteHandlers(helper *httppkg.RouterRegisterHelper) 
 		subRouter.Handle("/metrics", promhttp.Handler())
 	}
 
-	apiController := adminapi.NewController(svr.cfg, svr.clientRegistry, svr.pxyManager)
+	apiController := adminapi.NewController(svr.cfg, svr.clientRegistry, svr.pxyManager, svr.gatewayTunnelManager)
 
 	// apis
 	subRouter.HandleFunc("/api/serverinfo", httppkg.MakeHTTPHandlerFunc(apiController.APIServerInfo)).Methods("GET")
@@ -47,6 +47,11 @@ func (svr *Service) registerRouteHandlers(helper *httppkg.RouterRegisterHelper) 
 	subRouter.HandleFunc("/api/clients", httppkg.MakeHTTPHandlerFunc(apiController.APIClientList)).Methods("GET")
 	subRouter.HandleFunc("/api/clients/{key}", httppkg.MakeHTTPHandlerFunc(apiController.APIClientDetail)).Methods("GET")
 	subRouter.HandleFunc("/api/proxies", httppkg.MakeHTTPHandlerFunc(apiController.DeleteProxies)).Methods("DELETE")
+	subRouter.HandleFunc("/api/gateway-tunnels", httppkg.MakeHTTPHandlerFunc(apiController.APIGatewayTunnelList)).Methods("GET")
+	subRouter.HandleFunc("/api/gateway-tunnels/{id}", httppkg.MakeHTTPHandlerFunc(apiController.APIGatewayTunnelDetail)).Methods("GET")
+	subRouter.HandleFunc("/api/gateway-tunnels", httppkg.MakeHTTPHandlerFunc(apiController.APICreateGatewayTunnel)).Methods("POST")
+	subRouter.HandleFunc("/api/gateway-tunnels/{id}", httppkg.MakeHTTPHandlerFunc(apiController.APIUpdateGatewayTunnel)).Methods("PUT")
+	subRouter.HandleFunc("/api/gateway-tunnels/{id}", httppkg.MakeHTTPHandlerFunc(apiController.APIDeleteGatewayTunnel)).Methods("DELETE")
 
 	// view
 	subRouter.Handle("/favicon.ico", http.FileServer(helper.AssetsFS)).Methods("GET")

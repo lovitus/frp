@@ -150,6 +150,7 @@ We sincerely appreciate your support for frp.
 Current fork-maintainer documents for the new mix transport and release flow:
 
 - `doc/mix.md`
+- `doc/gateway_tunnels.md`
 - `doc/mix_benchmark_results.md`
 - `doc/upstream-sync.md`
 - `doc/agents/release.md`
@@ -181,9 +182,24 @@ With `mixFallbackHosts`, the client expands its retry and failback order as `end
 Operator and maintainer docs:
 
 - behavior, config, limits: `doc/mix.md`
+- runtime dashboard gateway tunnels: `doc/gateway_tunnels.md`
 - benchmark harness and latest results: `doc/mix_benchmark_results.md`
 - upstream merge workflow and conflict hotspots: `doc/upstream-sync.md`
 - fork release process and tag-driven GitHub Releases: `doc/agents/release.md`
+
+## Fork Notes: Gateway Tunnels
+
+This fork also adds runtime gateway tunnels on the frps dashboard.
+
+Enable the feature on frpc with a stable `clientID` plus:
+
+```toml
+allowGatewayTunnels = true
+```
+
+Legacy aliases `mixAllowGateway` and `mix_allow_gateway` are also accepted, but `allowGatewayTunnels` is the recommended field name.
+
+The frps dashboard can then create runtime TCP or UDP listeners that forward through the selected client to a fixed `targetHost:targetPort`. These runtime tunnel definitions are in-memory only and are lost on frps restart.
 
 ## Architecture
 

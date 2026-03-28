@@ -9,6 +9,9 @@ export class Client {
   version: string
   hostname: string
   ip: string
+  selectedProtocol: string
+  allowGatewayTunnels: boolean
+  hasStableClientID: boolean
   metas: Map<string, string>
   firstConnectedAt: Date
   lastConnectedAt: Date
@@ -23,6 +26,9 @@ export class Client {
     this.version = data.version || ''
     this.hostname = data.hostname
     this.ip = data.clientIP || ''
+    this.selectedProtocol = data.selectedProtocol || ''
+    this.allowGatewayTunnels = data.allowGatewayTunnels
+    this.hasStableClientID = data.hasStableClientID
     this.metas = new Map<string, string>()
     if (data.metas) {
       for (const [key, value] of Object.entries(data.metas)) {

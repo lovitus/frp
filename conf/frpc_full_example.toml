@@ -19,6 +19,13 @@ serverPort = 7000
 # mixFallbackHosts = "backup-a.example.com,backup-b.example.com:7002"
 # mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
 
+# Opt this client into server-managed runtime gateway tunnels.
+# clientID must also be set if you want the frps dashboard to target this client.
+# allowGatewayTunnels = true
+# Legacy aliases are also accepted for compatibility:
+# mixAllowGateway = true
+# mix_allow_gateway = true
+
 # STUN server to help penetrate NAT hole.
 # natHoleStunServer = "stun.easyvoip.com:3478"
 

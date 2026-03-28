@@ -16,6 +16,7 @@ package http
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -24,8 +25,10 @@ import (
 
 	"github.com/fatedier/frp/pkg/config/types"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
+	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/metrics/mem"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
+	"github.com/fatedier/frp/pkg/util/jsonx"
 	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/pkg/util/version"
 	"github.com/fatedier/frp/server/http/model"
@@ -38,21 +41,34 @@ type Controller struct {
 	serverCfg      *v1.ServerConfig
 	clientRegistry *registry.ClientRegistry
 	pxyManager     ProxyManager
+	gatewayManager GatewayTunnelManager
 }
 
 type ProxyManager interface {
 	GetByName(name string) (proxy.Proxy, bool)
 }
 
+type GatewayTunnelManager interface {
+	List() []gatewaypkg.Tunnel
+	Get(id string) (gatewaypkg.Tunnel, bool)
+	Create(tunnel gatewaypkg.Tunnel) (gatewaypkg.Tunnel, error)
+	Update(id string, tunnel gatewaypkg.Tunnel) (gatewaypkg.Tunnel, error)
+	Delete(id string) error
+	RefreshStatus(ctx context.Context, tunnelIDs []string)
+	SyncClient(clientKey string) error
+}
+
 func NewController(
 	serverCfg *v1.ServerConfig,
 	clientRegistry *registry.ClientRegistry,
 	pxyManager ProxyManager,
+	gatewayManager GatewayTunnelManager,
 ) *Controller {
 	return &Controller{
 		serverCfg:      serverCfg,
 		clientRegistry: clientRegistry,
 		pxyManager:     pxyManager,
+		gatewayManager: gatewayManager,
 	}
 }
 
@@ -229,6 +245,130 @@ func (c *Controller) DeleteProxies(ctx *httppkg.Context) (any, error) {
 	return httppkg.GeneralResponse{Code: 200, Msg: "success"}, nil
 }
 
+func (c *Controller) APIGatewayTunnelList(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+	if ctx.Query("refresh") != "false" {
+		c.gatewayManager.RefreshStatus(ctx.Req.Context(), nil)
+	}
+	return c.gatewayManager.List(), nil
+}
+
+func (c *Controller) APIGatewayTunnelDetail(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+	id := strings.TrimSpace(ctx.Param("id"))
+	if id == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "gateway tunnel id is required")
+	}
+	if ctx.Query("refresh") != "false" {
+		c.gatewayManager.RefreshStatus(ctx.Req.Context(), []string{id})
+	}
+	tunnel, ok := c.gatewayManager.Get(id)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("gateway tunnel %q not found", id))
+	}
+	return tunnel, nil
+}
+
+func (c *Controller) APICreateGatewayTunnel(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+	tunnel, err := c.parseGatewayTunnelPayload(ctx)
+	if err != nil {
+		return nil, err
+	}
+	created, err := c.gatewayManager.Create(tunnel)
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
+	}
+	_ = c.gatewayManager.SyncClient(created.ClientKey)
+	c.gatewayManager.RefreshStatus(ctx.Req.Context(), []string{created.ID})
+	updated, ok := c.gatewayManager.Get(created.ID)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusInternalServerError, "gateway tunnel disappeared after creation")
+	}
+	return updated, nil
+}
+
+func (c *Controller) APIUpdateGatewayTunnel(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+	id := strings.TrimSpace(ctx.Param("id"))
+	if id == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "gateway tunnel id is required")
+	}
+	previous, ok := c.gatewayManager.Get(id)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("gateway tunnel %q not found", id))
+	}
+	tunnel, err := c.parseGatewayTunnelPayload(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := c.gatewayManager.Update(id, tunnel)
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
+	}
+	if previous.ClientKey != updated.ClientKey {
+		_ = c.gatewayManager.SyncClient(previous.ClientKey)
+	}
+	_ = c.gatewayManager.SyncClient(updated.ClientKey)
+	c.gatewayManager.RefreshStatus(ctx.Req.Context(), []string{id})
+	updated, ok = c.gatewayManager.Get(id)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusInternalServerError, "gateway tunnel disappeared after update")
+	}
+	return updated, nil
+}
+
+func (c *Controller) APIDeleteGatewayTunnel(ctx *httppkg.Context) (any, error) {
+	if c.gatewayManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway tunnels are unavailable")
+	}
+	id := strings.TrimSpace(ctx.Param("id"))
+	if id == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "gateway tunnel id is required")
+	}
+	tunnel, ok := c.gatewayManager.Get(id)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("gateway tunnel %q not found", id))
+	}
+	if err := c.gatewayManager.Delete(id); err != nil {
+		return nil, httppkg.NewError(http.StatusInternalServerError, err.Error())
+	}
+	_ = c.gatewayManager.SyncClient(tunnel.ClientKey)
+	return httppkg.GeneralResponse{Code: 200, Msg: "success"}, nil
+}
+
+func (c *Controller) parseGatewayTunnelPayload(ctx *httppkg.Context) (gatewaypkg.Tunnel, error) {
+	body, err := ctx.Body()
+	if err != nil {
+		return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read body error: %v", err))
+	}
+	var tunnel gatewaypkg.Tunnel
+	if err := jsonx.Unmarshal(body, &tunnel); err != nil {
+		return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
+	}
+	if c.clientRegistry != nil {
+		client, ok := c.clientRegistry.GetByKey(strings.TrimSpace(tunnel.ClientKey))
+		if !ok {
+			return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "selected gateway client not found")
+		}
+		if !client.HasStableClientID {
+			return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "selected gateway client must configure clientID")
+		}
+		if !client.AllowGatewayTunnels {
+			return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "selected gateway client does not allow gateway tunnels")
+		}
+	}
+	return tunnel, nil
+}
+
 func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*model.ProxyStatsInfo) {
 	proxyStats := mem.StatsCollector.GetProxiesByType(proxyType)
 	proxyInfos = make([]*model.ProxyStatsInfo, 0, len(proxyStats))
@@ -282,17 +422,19 @@ func (c *Controller) getProxyStatsByTypeAndName(proxyType string, proxyName stri
 
 func buildClientInfoResp(info registry.ClientInfo) model.ClientInfoResp {
 	resp := model.ClientInfoResp{
-		Key:              info.Key,
-		User:             info.User,
-		ClientID:         info.ClientID(),
-		RunID:            info.RunID,
-		Version:          info.Version,
-		Hostname:         info.Hostname,
-		ClientIP:         info.IP,
-		SelectedProtocol: info.SelectedProtocol,
-		FirstConnectedAt: toUnix(info.FirstConnectedAt),
-		LastConnectedAt:  toUnix(info.LastConnectedAt),
-		Online:           info.Online,
+		Key:                 info.Key,
+		User:                info.User,
+		ClientID:            info.ClientID(),
+		RunID:               info.RunID,
+		Version:             info.Version,
+		Hostname:            info.Hostname,
+		ClientIP:            info.IP,
+		SelectedProtocol:    info.SelectedProtocol,
+		AllowGatewayTunnels: info.AllowGatewayTunnels,
+		HasStableClientID:   info.HasStableClientID,
+		FirstConnectedAt:    toUnix(info.FirstConnectedAt),
+		LastConnectedAt:     toUnix(info.LastConnectedAt),
+		Online:              info.Online,
 	}
 	if !info.DisconnectedAt.IsZero() {
 		resp.DisconnectedAt = info.DisconnectedAt.Unix()

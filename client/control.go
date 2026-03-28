@@ -52,6 +52,11 @@ type SessionContext struct {
 	VnetController *vnet.Controller
 }
 
+type GatewayTunnelController interface {
+	ApplyGatewayTunnels([]msg.GatewayTunnelConfig) error
+	BuildGatewayTunnelStatusResponse(requestID string, tunnelIDs []string) *msg.GatewayTunnelStatusResponse
+}
+
 type Control struct {
 	// service context
 	ctx context.Context
@@ -79,6 +84,8 @@ type Control struct {
 	// msgDispatcher is a wrapper for control connection.
 	// It provides a channel for sending messages, and you can register handlers to process messages based on their respective types.
 	msgDispatcher *msg.Dispatcher
+
+	gatewayTunnelManager GatewayTunnelController
 }
 
 func NewControl(ctx context.Context, sessionCtx *SessionContext) (*Control, error) {
@@ -121,6 +128,10 @@ func (ctl *Control) Run(proxyCfgs []v1.ProxyConfigurer, visitorCfgs []v1.Visitor
 
 func (ctl *Control) SetInWorkConnCallback(cb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool) {
 	ctl.pm.SetInWorkConnCallback(cb)
+}
+
+func (ctl *Control) SetGatewayTunnelManager(manager GatewayTunnelController) {
+	ctl.gatewayTunnelManager = manager
 }
 
 func (ctl *Control) handleReqWorkConn(_ msg.Message) {
@@ -201,6 +212,33 @@ func (ctl *Control) handlePong(m msg.Message) {
 	xl.Debugf("receive heartbeat from server")
 }
 
+func (ctl *Control) handleGatewayTunnelsSync(m msg.Message) {
+	xl := ctl.xl
+	inMsg := m.(*msg.GatewayTunnelsSync)
+	if ctl.gatewayTunnelManager == nil {
+		xl.Warnf("ignore gateway tunnel sync because gateway manager is disabled")
+		return
+	}
+	if err := ctl.gatewayTunnelManager.ApplyGatewayTunnels(inMsg.Tunnels); err != nil {
+		xl.Warnf("apply gateway tunnels error: %v", err)
+	}
+}
+
+func (ctl *Control) handleGatewayTunnelStatusRequest(m msg.Message) {
+	xl := ctl.xl
+	inMsg := m.(*msg.GatewayTunnelStatusRequest)
+	if ctl.gatewayTunnelManager == nil {
+		return
+	}
+	resp := ctl.gatewayTunnelManager.BuildGatewayTunnelStatusResponse(inMsg.RequestID, inMsg.TunnelIDs)
+	if resp == nil {
+		return
+	}
+	if err := ctl.msgDispatcher.Send(resp); err != nil {
+		xl.Warnf("send gateway tunnel status response error: %v", err)
+	}
+}
+
 // closeSession closes the control connection.
 func (ctl *Control) closeSession() {
 	ctl.sessionCtx.Conn.Close()
@@ -236,6 +274,12 @@ func (ctl *Control) registerMsgHandlers() {
 	ctl.msgDispatcher.RegisterHandler(&msg.NewProxyResp{}, ctl.handleNewProxyResp)
 	ctl.msgDispatcher.RegisterHandler(&msg.NatHoleResp{}, ctl.handleNatHoleResp)
 	ctl.msgDispatcher.RegisterHandler(&msg.Pong{}, ctl.handlePong)
+	ctl.msgDispatcher.RegisterHandler(&msg.GatewayTunnelsSync{}, ctl.handleGatewayTunnelsSync)
+	ctl.msgDispatcher.RegisterHandler(&msg.GatewayTunnelStatusRequest{}, msg.AsyncHandler(ctl.handleGatewayTunnelStatusRequest))
+}
+
+func (ctl *Control) SendMessage(m msg.Message) error {
+	return ctl.msgDispatcher.Send(m)
 }
 
 // heartbeatWorker sends heartbeat to server and check heartbeat timeout.

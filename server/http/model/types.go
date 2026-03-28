@@ -41,18 +41,20 @@ type ServerInfoResp struct {
 }
 
 type ClientInfoResp struct {
-	Key              string `json:"key"`
-	User             string `json:"user"`
-	ClientID         string `json:"clientID"`
-	RunID            string `json:"runID"`
-	Version          string `json:"version,omitempty"`
-	Hostname         string `json:"hostname"`
-	ClientIP         string `json:"clientIP,omitempty"`
-	SelectedProtocol string `json:"selectedProtocol,omitempty"`
-	FirstConnectedAt int64  `json:"firstConnectedAt"`
-	LastConnectedAt  int64  `json:"lastConnectedAt"`
-	DisconnectedAt   int64  `json:"disconnectedAt,omitempty"`
-	Online           bool   `json:"online"`
+	Key                 string `json:"key"`
+	User                string `json:"user"`
+	ClientID            string `json:"clientID"`
+	RunID               string `json:"runID"`
+	Version             string `json:"version,omitempty"`
+	Hostname            string `json:"hostname"`
+	ClientIP            string `json:"clientIP,omitempty"`
+	SelectedProtocol    string `json:"selectedProtocol,omitempty"`
+	AllowGatewayTunnels bool   `json:"allowGatewayTunnels"`
+	HasStableClientID   bool   `json:"hasStableClientID"`
+	FirstConnectedAt    int64  `json:"firstConnectedAt"`
+	LastConnectedAt     int64  `json:"lastConnectedAt"`
+	DisconnectedAt      int64  `json:"disconnectedAt,omitempty"`
+	Online              bool   `json:"online"`
 }
 
 type BaseOutConf struct {

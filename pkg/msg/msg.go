@@ -20,45 +20,51 @@ import (
 )
 
 const (
-	TypeLogin              = 'o'
-	TypeLoginResp          = '1'
-	TypeNewProxy           = 'p'
-	TypeNewProxyResp       = '2'
-	TypeCloseProxy         = 'c'
-	TypeNewWorkConn        = 'w'
-	TypeReqWorkConn        = 'r'
-	TypeStartWorkConn      = 's'
-	TypeNewVisitorConn     = 'v'
-	TypeNewVisitorConnResp = '3'
-	TypePing               = 'h'
-	TypePong               = '4'
-	TypeUDPPacket          = 'u'
-	TypeNatHoleVisitor     = 'i'
-	TypeNatHoleClient      = 'n'
-	TypeNatHoleResp        = 'm'
-	TypeNatHoleSid         = '5'
-	TypeNatHoleReport      = '6'
+	TypeLogin                       = 'o'
+	TypeLoginResp                   = '1'
+	TypeNewProxy                    = 'p'
+	TypeNewProxyResp                = '2'
+	TypeCloseProxy                  = 'c'
+	TypeNewWorkConn                 = 'w'
+	TypeReqWorkConn                 = 'r'
+	TypeStartWorkConn               = 's'
+	TypeNewVisitorConn              = 'v'
+	TypeNewVisitorConnResp          = '3'
+	TypePing                        = 'h'
+	TypePong                        = '4'
+	TypeUDPPacket                   = 'u'
+	TypeGatewayTunnelsSync          = 'g'
+	TypeGatewayTunnelStatusRequest  = 'j'
+	TypeGatewayTunnelStatusResponse = 'k'
+	TypeNatHoleVisitor              = 'i'
+	TypeNatHoleClient               = 'n'
+	TypeNatHoleResp                 = 'm'
+	TypeNatHoleSid                  = '5'
+	TypeNatHoleReport               = '6'
 )
 
 var msgTypeMap = map[byte]any{
-	TypeLogin:              Login{},
-	TypeLoginResp:          LoginResp{},
-	TypeNewProxy:           NewProxy{},
-	TypeNewProxyResp:       NewProxyResp{},
-	TypeCloseProxy:         CloseProxy{},
-	TypeNewWorkConn:        NewWorkConn{},
-	TypeReqWorkConn:        ReqWorkConn{},
-	TypeStartWorkConn:      StartWorkConn{},
-	TypeNewVisitorConn:     NewVisitorConn{},
-	TypeNewVisitorConnResp: NewVisitorConnResp{},
-	TypePing:               Ping{},
-	TypePong:               Pong{},
-	TypeUDPPacket:          UDPPacket{},
-	TypeNatHoleVisitor:     NatHoleVisitor{},
-	TypeNatHoleClient:      NatHoleClient{},
-	TypeNatHoleResp:        NatHoleResp{},
-	TypeNatHoleSid:         NatHoleSid{},
-	TypeNatHoleReport:      NatHoleReport{},
+	TypeLogin:                       Login{},
+	TypeLoginResp:                   LoginResp{},
+	TypeNewProxy:                    NewProxy{},
+	TypeNewProxyResp:                NewProxyResp{},
+	TypeCloseProxy:                  CloseProxy{},
+	TypeNewWorkConn:                 NewWorkConn{},
+	TypeReqWorkConn:                 ReqWorkConn{},
+	TypeStartWorkConn:               StartWorkConn{},
+	TypeNewVisitorConn:              NewVisitorConn{},
+	TypeNewVisitorConnResp:          NewVisitorConnResp{},
+	TypePing:                        Ping{},
+	TypePong:                        Pong{},
+	TypeUDPPacket:                   UDPPacket{},
+	TypeGatewayTunnelsSync:          GatewayTunnelsSync{},
+	TypeGatewayTunnelStatusRequest:  GatewayTunnelStatusRequest{},
+	TypeGatewayTunnelStatusResponse: GatewayTunnelStatusResponse{},
+	TypeNatHoleVisitor:              NatHoleVisitor{},
+	TypeNatHoleClient:               NatHoleClient{},
+	TypeNatHoleResp:                 NatHoleResp{},
+	TypeNatHoleSid:                  NatHoleSid{},
+	TypeNatHoleReport:               NatHoleReport{},
 }
 
 var TypeNameNatHoleResp = reflect.TypeFor[NatHoleResp]().Name()
@@ -91,7 +97,8 @@ type Login struct {
 	// Some global configures.
 	PoolCount int `json:"pool_count,omitempty"`
 
-	SelectedProtocol string `json:"selected_protocol,omitempty"`
+	SelectedProtocol    string `json:"selected_protocol,omitempty"`
+	AllowGatewayTunnels bool   `json:"allow_gateway_tunnels,omitempty"`
 }
 
 type LoginResp struct {
@@ -189,6 +196,40 @@ type UDPPacket struct {
 	Content    []byte       `json:"c,omitempty"`
 	LocalAddr  *net.UDPAddr `json:"l,omitempty"`
 	RemoteAddr *net.UDPAddr `json:"r,omitempty"`
+}
+
+type GatewayTunnelConfig struct {
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Remark     string `json:"remark,omitempty"`
+	Protocol   string `json:"protocol,omitempty"`
+	BindAddr   string `json:"bind_addr,omitempty"`
+	ListenPort int    `json:"listen_port,omitempty"`
+	TargetHost string `json:"target_host,omitempty"`
+	TargetPort int    `json:"target_port,omitempty"`
+}
+
+type GatewayTunnelsSync struct {
+	Tunnels []GatewayTunnelConfig `json:"tunnels,omitempty"`
+}
+
+type GatewayTunnelStatusRequest struct {
+	RequestID string   `json:"request_id,omitempty"`
+	TunnelIDs []string `json:"tunnel_ids,omitempty"`
+}
+
+type GatewayTunnelStatus struct {
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Message    string `json:"message,omitempty"`
+	RemoteAddr string `json:"remote_addr,omitempty"`
+	UpdatedAt  int64  `json:"updated_at,omitempty"`
+}
+
+type GatewayTunnelStatusResponse struct {
+	RequestID string                `json:"request_id,omitempty"`
+	Statuses  []GatewayTunnelStatus `json:"statuses,omitempty"`
 }
 
 type NatHoleVisitor struct {

@@ -155,6 +155,9 @@ type Control struct {
 	xl     *xlog.Logger
 	ctx    context.Context
 	doneCh chan struct{}
+
+	clientKey                  string
+	gatewayTunnelStatusHandler func(string, *msg.GatewayTunnelStatusResponse)
 }
 
 func NewControl(ctx context.Context, sessionCtx *SessionContext) (*Control, error) {
@@ -214,6 +217,14 @@ func (ctl *Control) Replaced(newCtl *Control) {
 	xl.Infof("replaced by client [%s]", newCtl.runID)
 	ctl.runID = ""
 	ctl.sessionCtx.Conn.Close()
+}
+
+func (ctl *Control) SetClientKey(key string) {
+	ctl.clientKey = key
+}
+
+func (ctl *Control) SetGatewayTunnelStatusHandler(handler func(string, *msg.GatewayTunnelStatusResponse)) {
+	ctl.gatewayTunnelStatusHandler = handler
 }
 
 func (ctl *Control) RegisterWorkConn(conn net.Conn) error {
@@ -362,6 +373,18 @@ func (ctl *Control) registerMsgHandlers() {
 	ctl.msgDispatcher.RegisterHandler(&msg.NatHoleClient{}, msg.AsyncHandler(ctl.handleNatHoleClient))
 	ctl.msgDispatcher.RegisterHandler(&msg.NatHoleReport{}, msg.AsyncHandler(ctl.handleNatHoleReport))
 	ctl.msgDispatcher.RegisterHandler(&msg.CloseProxy{}, ctl.handleCloseProxy)
+	ctl.msgDispatcher.RegisterHandler(&msg.GatewayTunnelStatusResponse{}, ctl.handleGatewayTunnelStatusResponse)
+}
+
+func (ctl *Control) handleGatewayTunnelStatusResponse(m msg.Message) {
+	if ctl.gatewayTunnelStatusHandler == nil {
+		return
+	}
+	ctl.gatewayTunnelStatusHandler(ctl.clientKey, m.(*msg.GatewayTunnelStatusResponse))
+}
+
+func (ctl *Control) SendMessage(m msg.Message) error {
+	return ctl.msgDispatcher.Send(m)
 }
 
 func (ctl *Control) handleNewProxy(m msg.Message) {

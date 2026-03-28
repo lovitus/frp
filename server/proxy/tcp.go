@@ -21,6 +21,7 @@ import (
 	"strconv"
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
+	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 )
 
 func init() {
@@ -48,9 +49,10 @@ func NewTCPProxy(baseProxy *BaseProxy) Proxy {
 
 func (pxy *TCPProxy) Run() (remoteAddr string, err error) {
 	xl := pxy.xl
+	bindAddr := gatewaypkg.ResolveBindAddr(pxy.cfg.GetBaseConfig().Annotations, pxy.serverCfg.ProxyBindAddr)
 	if pxy.cfg.LoadBalancer.Group != "" {
 		l, realBindPort, errRet := pxy.rc.TCPGroupCtl.Listen(pxy.name, pxy.cfg.LoadBalancer.Group, pxy.cfg.LoadBalancer.GroupKey,
-			pxy.serverCfg.ProxyBindAddr, pxy.cfg.RemotePort)
+			bindAddr, pxy.cfg.RemotePort)
 		if errRet != nil {
 			err = errRet
 			return
@@ -73,7 +75,7 @@ func (pxy *TCPProxy) Run() (remoteAddr string, err error) {
 				pxy.rc.TCPPortManager.Release(pxy.realBindPort)
 			}
 		}()
-		listener, errRet := net.Listen("tcp", net.JoinHostPort(pxy.serverCfg.ProxyBindAddr, strconv.Itoa(pxy.realBindPort)))
+		listener, errRet := net.Listen("tcp", net.JoinHostPort(bindAddr, strconv.Itoa(pxy.realBindPort)))
 		if errRet != nil {
 			err = errRet
 			return

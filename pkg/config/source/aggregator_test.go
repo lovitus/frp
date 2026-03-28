@@ -110,6 +110,30 @@ func TestAggregator_SetStoreSource_Overwrite(t *testing.T) {
 	require.Nil(agg.StoreSource())
 }
 
+func TestAggregator_RuntimeSourceOverridesConfigSource(t *testing.T) {
+	require := require.New(t)
+
+	agg := newTestAggregator(t, nil)
+	runtimeSource := NewConfigSource()
+	agg.SetRuntimeSource(runtimeSource)
+
+	configProxy := mockProxy("shared").(*v1.TCPProxyConfig)
+	configProxy.LocalPort = 1111
+	err := agg.ConfigSource().ReplaceAll([]v1.ProxyConfigurer{configProxy}, nil)
+	require.NoError(err)
+
+	runtimeProxy := mockProxy("shared").(*v1.TCPProxyConfig)
+	runtimeProxy.LocalPort = 2222
+	err = runtimeSource.ReplaceAll([]v1.ProxyConfigurer{runtimeProxy}, nil)
+	require.NoError(err)
+
+	proxies, visitors, err := agg.Load()
+	require.NoError(err)
+	require.Len(proxies, 1)
+	require.Len(visitors, 0)
+	require.Equal(2222, proxies[0].(*v1.TCPProxyConfig).LocalPort)
+}
+
 func TestAggregator_MergeBySourceOrder(t *testing.T) {
 	require := require.New(t)
 

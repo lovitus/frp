@@ -92,6 +92,7 @@ v2 的构想是基于我多年在云原生领域，特别是在 K8s 和 ServiceM
 当前这个 fork 与 mix 传输相关的维护文档在这里：
 
 * `doc/mix.md`
+* `doc/gateway_tunnels.md`
 * `doc/mix_benchmark_results.md`
 * `doc/upstream-sync.md`
 * `doc/agents/release.md`
@@ -123,9 +124,24 @@ mixToken = "kcp://kcppass,ss://aes-256-gcm:sspass,ssh://user:sshpass"
 运维和维护文档：
 
 * 行为、配置和限制：`doc/mix.md`
+* dashboard 运行时 gateway tunnel：`doc/gateway_tunnels.md`
 * 压测入口和最新结果：`doc/mix_benchmark_results.md`
 * 上游同步与冲突热点：`doc/upstream-sync.md`
 * fork 的发版流程与 tag 驱动 release：`doc/agents/release.md`
+
+## Fork 说明：Gateway Tunnel
+
+这个 fork 还在 frps dashboard 上增加了运行时 gateway tunnel 管理页。
+
+frpc 端需要配置稳定的 `clientID`，并开启：
+
+```toml
+allowGatewayTunnels = true
+```
+
+为了兼容之前的命名，`mixAllowGateway` 和 `mix_allow_gateway` 也仍然支持，但推荐统一使用 `allowGatewayTunnels`。
+
+dashboard 可以运行时创建 TCP 或 UDP 监听，并把它转发到指定 gateway client 的固定 `targetHost:targetPort`。这些 tunnel 当前只保存在 frps 进程内存里，frps 重启后会消失。
 
 ## 文档
 

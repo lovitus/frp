@@ -80,6 +80,14 @@
           >
             Proxies
           </router-link>
+          <router-link
+            to="/gateway-tunnels"
+            class="sidebar-link"
+            :class="{ active: route.path.startsWith('/gateway-tunnels') }"
+            @click="closeSidebar"
+          >
+            Gateway
+          </router-link>
         </nav>
       </aside>
 

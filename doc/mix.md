@@ -105,5 +105,6 @@ The client and server emit mix-specific logs for:
 ## Related Docs
 
 - `doc/mix_benchmark_results.md`
+- `doc/gateway_tunnels.md`
 - `doc/upstream-sync.md`
 - `doc/agents/release.md`

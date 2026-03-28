@@ -9,6 +9,14 @@ mixBindPort = 7000
 # mixFallbackHosts = "10.20.0.65,kr.goodfood.com:7002,[2401:c080:1c02:aaf:5400:8ff:fe88:d88f]:7007"
 mixToken = "kcp://kcppass,quic://quicpass,ss://aes-256-gcm:sspass,wss://wsspass,ssh://user:sshpass,tcp://tcppass"
 
+# Stable clientID is required if you want to manage runtime gateway tunnels
+# from the frps dashboard for this client.
+# clientID = "edge-kr-01"
+# allowGatewayTunnels = true
+# Legacy aliases are also accepted:
+# mixAllowGateway = true
+# mix_allow_gateway = true
+
 auth.method = "token"
 auth.token = "12345678"
 

@@ -42,3 +42,28 @@ func TestAuthClientConfig_Complete(t *testing.T) {
 	require.NoError(err)
 	require.EqualValues("token", cfg.Method)
 }
+
+func TestClientConfigComplete_FoldsGatewayAliases(t *testing.T) {
+	require := require.New(t)
+	cfg := &ClientConfig{
+		ClientCommonConfig: ClientCommonConfig{
+			MixBindPortLegacy:      7001,
+			MixTokenLegacy:         "kcp://secret",
+			MixFallbackHostsLegacy: "backup.example.com",
+			MixAllowGatewayLegacy:  lo.ToPtr(true),
+			MixAllowGateway:        lo.ToPtr(true),
+			AllowGatewayTunnels:    nil,
+			LoginFailExit:          lo.ToPtr(false),
+			NatHoleSTUNServer:      "stun.example.com:3478",
+			ServerAddr:             "example.com",
+			ServerPort:             7000,
+		},
+	}
+
+	err := cfg.Complete()
+	require.NoError(err)
+	require.Equal(7001, cfg.MixBindPort)
+	require.Equal("kcp://secret", cfg.MixToken)
+	require.Equal("backup.example.com", cfg.MixFallbackHosts)
+	require.True(lo.FromPtr(cfg.AllowGatewayTunnels))
+}

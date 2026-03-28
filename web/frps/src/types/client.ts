@@ -6,6 +6,9 @@ export interface ClientInfoData {
   version?: string
   hostname: string
   clientIP?: string
+  selectedProtocol?: string
+  allowGatewayTunnels: boolean
+  hasStableClientID: boolean
   metas?: Record<string, string>
   firstConnectedAt: number
   lastConnectedAt: number
