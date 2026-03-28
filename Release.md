@@ -23,6 +23,9 @@ This release introduces the new `mix` transport selector for frpc/frps, adds run
 * Fixed legacy `[common]` INI compatibility for `mix` and gateway-related client/server fields, and restored camelCase aliases such as `bindPort`, `serverAddr`, `mixBindPort`, and `mixToken` on that legacy load path.
 * Improved the Gateway dashboard page so eligible clients are shown with richer runtime details including hostname, client IP, version, selected transport, online state, and internal key.
 * Added a non-fatal client warning when gateway mode is enabled without `clientID`: frpc now starts normally, logs a warning, and clearly reports that the client will not be eligible for dashboard gateway tunnels until `clientID` is configured.
+* Improved Gateway dashboard readability with grouped card-style tunnel layout, and fixed missing button theme variables so primary actions are always visible.
+* Added a one-time gateway client snapshot on Gateway page load that shows `online / registered` counts and an expandable gateway node list with status.
+* Updated Proxies cards for gateway-managed runtime proxies to show a friendly tunnel summary line (`name · remark · targetHost:targetPort`) while keeping the internal proxy key unchanged for routing and metrics.
 
 ## Protocol and Runtime Notes
 

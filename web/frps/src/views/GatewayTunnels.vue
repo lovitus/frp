@@ -30,6 +30,19 @@
 
     <div class="stats-grid">
       <div class="stat-card">
+        <span class="stat-label">Gateway Clients</span>
+        <span class="stat-value">{{ gatewayOnlineCount }}/{{ gatewayRegisteredCount }}</span>
+        <span class="stat-meta">online / registered</span>
+        <ActionButton
+          variant="outline"
+          size="small"
+          class="snapshot-toggle"
+          @click="gatewayListExpanded = !gatewayListExpanded"
+        >
+          {{ gatewayListExpanded ? 'Hide Gateway List' : 'Show Gateway List' }}
+        </ActionButton>
+      </div>
+      <div class="stat-card">
         <span class="stat-label">Total</span>
         <span class="stat-value">{{ tunnels.length }}</span>
       </div>
@@ -40,6 +53,34 @@
       <div class="stat-card">
         <span class="stat-label">Need Attention</span>
         <span class="stat-value">{{ attentionCount }}</span>
+      </div>
+    </div>
+
+    <div v-if="gatewayListExpanded" class="gateway-snapshot">
+      <div class="snapshot-title">Gateway Nodes Snapshot (loaded once on page entry)</div>
+      <div v-if="gatewaySnapshotClients.length === 0" class="snapshot-empty">
+        No gateway clients found in this snapshot.
+      </div>
+      <div v-else class="snapshot-list">
+        <div
+          v-for="client in gatewaySnapshotClients"
+          :key="client.key"
+          class="snapshot-item"
+        >
+          <div class="snapshot-head">
+            <span class="snapshot-name">{{ client.displayName }}</span>
+            <el-tag size="small" :type="client.online ? 'success' : 'info'">
+              {{ client.online ? 'online' : 'offline' }}
+            </el-tag>
+          </div>
+          <div v-if="buildClientSubLabel(client)" class="snapshot-meta">
+            {{ buildClientSubLabel(client) }}
+          </div>
+          <div v-if="buildClientMetaLine(client)" class="snapshot-meta">
+            {{ buildClientMetaLine(client) }}
+          </div>
+          <div class="snapshot-meta">key {{ client.key }}</div>
+        </div>
       </div>
     </div>
 
@@ -312,6 +353,10 @@ const { isMobile } = useResponsive()
 
 const clients = ref<Client[]>([])
 const tunnels = ref<GatewayTunnelData[]>([])
+const gatewayRegisteredCount = ref(0)
+const gatewayOnlineCount = ref(0)
+const gatewaySnapshotClients = ref<Client[]>([])
+const gatewayListExpanded = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
@@ -525,9 +570,21 @@ const populateForm = (tunnel: GatewayTunnelData) => {
   formState.targetPort = tunnel.targetPort
 }
 
-const fetchClients = async () => {
+const refreshGatewayClientSnapshot = (list: Client[]) => {
+  const gateways = list
+    .filter((client) => client.allowGatewayTunnels && client.hasStableClientID)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+  gatewayRegisteredCount.value = gateways.length
+  gatewayOnlineCount.value = gateways.filter((client) => client.online).length
+  gatewaySnapshotClients.value = gateways
+}
+
+const fetchClients = async (refreshSnapshot = false) => {
   const payload = await getClients()
   clients.value = payload.map((item: ClientInfoData) => new Client(item))
+  if (refreshSnapshot) {
+    refreshGatewayClientSnapshot(clients.value)
+  }
 }
 
 const fetchTunnels = async () => {
@@ -537,7 +594,22 @@ const fetchTunnels = async () => {
 const fetchData = async () => {
   loading.value = true
   try {
-    await Promise.all([fetchClients(), fetchTunnels()])
+    await fetchTunnels()
+  } catch (error: any) {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Failed to fetch gateway tunnels: ' + error.message,
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadPageSnapshot = async () => {
+  loading.value = true
+  try {
+    await Promise.all([fetchClients(true), fetchTunnels()])
   } catch (error: any) {
     ElMessage({
       type: 'error',
@@ -628,7 +700,7 @@ const deleteTunnel = async () => {
 }
 
 onMounted(() => {
-  fetchData()
+  loadPageSnapshot()
 })
 </script>
 
@@ -683,7 +755,7 @@ onMounted(() => {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -706,6 +778,72 @@ onMounted(() => {
   font-size: 28px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+}
+
+.stat-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.snapshot-toggle {
+  margin-top: 2px;
+  align-self: flex-start;
+}
+
+.gateway-snapshot {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 16px;
+  background: var(--el-bg-color);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.snapshot-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.snapshot-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.snapshot-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.snapshot-item {
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 12px;
+  background: var(--el-fill-color-light);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.snapshot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.snapshot-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.snapshot-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  word-break: break-word;
 }
 
 .filter-row {
@@ -917,6 +1055,7 @@ code {
   }
 
   .tunnel-card-grid,
+  .snapshot-list,
   .form-grid {
     grid-template-columns: 1fr;
   }

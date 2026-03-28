@@ -57,6 +57,19 @@ Each tunnel includes:
 
 The page refreshes tunnel state on load and on create, update, or delete. It does not run a continuous background poll by default.
 
+The page also captures a one-time gateway client snapshot when the page is first loaded:
+
+- `online / registered` gateway client count
+- an expandable gateway node list with online/offline status and client details
+
+This snapshot is intentionally refreshed only once at page entry. Later tunnel refresh actions only update tunnel records.
+
+In `Proxies`, gateway-managed runtime proxies keep their internal proxy name for identity and metrics, and show an additional friendly summary line:
+
+- gateway tunnel `name`
+- gateway tunnel `remark`
+- gateway target address `targetHost:targetPort`
+
 ## Status Model
 
 The current runtime status can be one of:
