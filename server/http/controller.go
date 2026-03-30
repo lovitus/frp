@@ -29,6 +29,7 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/metrics/mem"
+	"github.com/fatedier/frp/pkg/msg"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
 	"github.com/fatedier/frp/pkg/util/jsonx"
 	"github.com/fatedier/frp/pkg/util/log"
@@ -44,6 +45,7 @@ type Controller struct {
 	clientRegistry *registry.ClientRegistry
 	pxyManager     ProxyManager
 	gatewayManager GatewayTunnelManager
+	systemManager  GatewaySystemInfoManager
 }
 
 type ProxyManager interface {
@@ -58,6 +60,10 @@ type GatewayTunnelManager interface {
 	Delete(id string) error
 	RefreshStatus(ctx context.Context, tunnelIDs []string)
 	SyncClient(clientKey string) error
+}
+
+type GatewaySystemInfoManager interface {
+	Request(ctx context.Context, clientKey string) (msg.GatewaySystemInfo, error)
 }
 
 type gatewayTunnelYAML struct {
@@ -93,12 +99,14 @@ func NewController(
 	clientRegistry *registry.ClientRegistry,
 	pxyManager ProxyManager,
 	gatewayManager GatewayTunnelManager,
+	systemManager GatewaySystemInfoManager,
 ) *Controller {
 	return &Controller{
 		serverCfg:      serverCfg,
 		clientRegistry: clientRegistry,
 		pxyManager:     pxyManager,
 		gatewayManager: gatewayManager,
+		systemManager:  systemManager,
 	}
 }
 
@@ -189,6 +197,38 @@ func (c *Controller) APIClientDetail(ctx *httppkg.Context) (any, error) {
 	}
 
 	return buildClientInfoResp(info), nil
+}
+
+// /api/clients/{key}/gateway-system-info
+func (c *Controller) APIClientGatewaySystemInfo(ctx *httppkg.Context) (any, error) {
+	if c.clientRegistry == nil {
+		return nil, fmt.Errorf("client registry unavailable")
+	}
+	if c.systemManager == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "gateway system info is unavailable")
+	}
+
+	key := strings.TrimSpace(ctx.Param("key"))
+	if key == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "client key is required")
+	}
+
+	client, ok := c.clientRegistry.GetByKey(key)
+	if !ok {
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("client %q not found", key))
+	}
+	if !client.Online {
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("client %q is offline", key))
+	}
+	if !client.AllowGatewayTunnels {
+		return nil, httppkg.NewError(http.StatusBadRequest, "selected gateway client does not allow gateway tunnels")
+	}
+
+	info, err := c.systemManager.Request(ctx.Req.Context(), key)
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusBadGateway, err.Error())
+	}
+	return buildGatewaySystemInfoResp(client, info), nil
 }
 
 // /api/proxy/:type
@@ -638,6 +678,11 @@ func buildClientInfoResp(info registry.ClientInfo) model.ClientInfoResp {
 		Version:             info.Version,
 		Hostname:            info.Hostname,
 		ClientIP:            info.IP,
+		Os:                  info.Os,
+		Arch:                info.Arch,
+		PoolCount:           info.PoolCount,
+		LoginTimestamp:      info.LoginTimestamp,
+		Metas:               info.Metas,
 		SelectedProtocol:    info.SelectedProtocol,
 		AllowGatewayTunnels: info.AllowGatewayTunnels,
 		HasStableClientID:   info.HasStableClientID,
@@ -649,6 +694,48 @@ func buildClientInfoResp(info registry.ClientInfo) model.ClientInfoResp {
 		resp.DisconnectedAt = info.DisconnectedAt.Unix()
 	}
 	return resp
+}
+
+func buildGatewaySystemInfoResp(client registry.ClientInfo, info msg.GatewaySystemInfo) model.GatewaySystemInfoResp {
+	return model.GatewaySystemInfoResp{
+		Key:              client.Key,
+		DisplayName:      client.Key,
+		ClientID:         client.ClientID(),
+		RunID:            client.RunID,
+		Hostname:         info.Hostname,
+		ObservedSourceIP: client.IP,
+		OS:               info.OS,
+		Arch:             info.Arch,
+		KernelVersion:    info.KernelVersion,
+		Platform:         info.Platform,
+		PlatformVersion:  info.PlatformVersion,
+		Timezone:         info.Timezone,
+		UptimeSeconds:    info.UptimeSeconds,
+		CurrentUser:      info.CurrentUser,
+		FRPCVersion:      info.FRPCVersion,
+		SelectedProtocol: info.SelectedProtocol,
+		DefaultRouteIP:   info.DefaultRouteIP,
+		CPUCount:         info.CPUCount,
+		Load1:            info.Load1,
+		Load5:            info.Load5,
+		Load15:           info.Load15,
+		MemoryTotal:      info.MemoryTotal,
+		MemoryUsed:       info.MemoryUsed,
+		MemoryAvailable:  info.MemoryAvailable,
+		SwapTotal:        info.SwapTotal,
+		SwapUsed:         info.SwapUsed,
+		DiskPath:         info.DiskPath,
+		DiskTotal:        info.DiskTotal,
+		DiskUsed:         info.DiskUsed,
+		FRPCPID:          info.FRPCPID,
+		FRPCStartTime:    info.FRPCStartTime,
+		Goroutines:       info.Goroutines,
+		CollectedAt:      info.CollectedAt,
+		Interfaces:       info.Interfaces,
+		TopMemoryProcs:   info.TopMemoryProcs,
+		Gateway:          model.GatewaySystemGatewaySummary(info.Gateway),
+		Metas:            info.Metas,
+	}
 }
 
 func toUnix(t time.Time) int64 {

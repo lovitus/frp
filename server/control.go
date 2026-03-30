@@ -158,6 +158,7 @@ type Control struct {
 
 	clientKey                  string
 	gatewayTunnelStatusHandler func(string, *msg.GatewayTunnelStatusResponse)
+	gatewaySystemInfoHandler   func(string, *msg.GatewaySystemInfoResponse)
 }
 
 func NewControl(ctx context.Context, sessionCtx *SessionContext) (*Control, error) {
@@ -225,6 +226,10 @@ func (ctl *Control) SetClientKey(key string) {
 
 func (ctl *Control) SetGatewayTunnelStatusHandler(handler func(string, *msg.GatewayTunnelStatusResponse)) {
 	ctl.gatewayTunnelStatusHandler = handler
+}
+
+func (ctl *Control) SetGatewaySystemInfoHandler(handler func(string, *msg.GatewaySystemInfoResponse)) {
+	ctl.gatewaySystemInfoHandler = handler
 }
 
 func (ctl *Control) RegisterWorkConn(conn net.Conn) error {
@@ -374,6 +379,7 @@ func (ctl *Control) registerMsgHandlers() {
 	ctl.msgDispatcher.RegisterHandler(&msg.NatHoleReport{}, msg.AsyncHandler(ctl.handleNatHoleReport))
 	ctl.msgDispatcher.RegisterHandler(&msg.CloseProxy{}, ctl.handleCloseProxy)
 	ctl.msgDispatcher.RegisterHandler(&msg.GatewayTunnelStatusResponse{}, ctl.handleGatewayTunnelStatusResponse)
+	ctl.msgDispatcher.RegisterHandler(&msg.GatewaySystemInfoResponse{}, ctl.handleGatewaySystemInfoResponse)
 }
 
 func (ctl *Control) handleGatewayTunnelStatusResponse(m msg.Message) {
@@ -381,6 +387,13 @@ func (ctl *Control) handleGatewayTunnelStatusResponse(m msg.Message) {
 		return
 	}
 	ctl.gatewayTunnelStatusHandler(ctl.clientKey, m.(*msg.GatewayTunnelStatusResponse))
+}
+
+func (ctl *Control) handleGatewaySystemInfoResponse(m msg.Message) {
+	if ctl.gatewaySystemInfoHandler == nil {
+		return
+	}
+	ctl.gatewaySystemInfoHandler(ctl.clientKey, m.(*msg.GatewaySystemInfoResponse))
 }
 
 func (ctl *Control) SendMessage(m msg.Message) error {

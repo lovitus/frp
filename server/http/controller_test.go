@@ -28,7 +28,9 @@ import (
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
+	"github.com/fatedier/frp/pkg/msg"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
+	"github.com/fatedier/frp/server/http/model"
 	"github.com/fatedier/frp/server/registry"
 )
 
@@ -89,6 +91,18 @@ type stubGatewayTunnelManager struct {
 	updateErr     error
 	deleteErr     error
 	nextGenerated int
+}
+
+type stubGatewaySystemInfoManager struct {
+	info msg.GatewaySystemInfo
+	err  error
+}
+
+func (m *stubGatewaySystemInfoManager) Request(_ context.Context, _ string) (msg.GatewaySystemInfo, error) {
+	if m.err != nil {
+		return msg.GatewaySystemInfo{}, m.err
+	}
+	return m.info, nil
 }
 
 func newStubGatewayTunnelManager() *stubGatewayTunnelManager {
@@ -179,6 +193,11 @@ func registerClient(
 		runID,
 		"host",
 		"0.68.1-mix.7",
+		"linux",
+		"amd64",
+		5,
+		0,
+		map[string]string{"role": "gateway"},
 		"127.0.0.1",
 		"tcp",
 		allowGateway,
@@ -191,7 +210,7 @@ func TestAPICreateGatewayTunnelRejectsClientWithoutStableClientID(t *testing.T) 
 	reg := registry.NewClientRegistry()
 	key := registerClient(t, reg, "", "run-no-client-id", true)
 	manager := newStubGatewayTunnelManager()
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	body := []byte(`{"name":"ssh","protocol":"tcp","bindAddr":"0.0.0.0","listenPort":6000,"clientKey":"` + key + `","targetHost":"127.0.0.1","targetPort":22}`)
 	_, err := controller.APICreateGatewayTunnel(newGatewayContext(t, "POST", "/api/gateway-tunnels", body, nil))
@@ -206,7 +225,7 @@ func TestAPICreateGatewayTunnelRejectsClientWithoutGatewayOptIn(t *testing.T) {
 	reg := registry.NewClientRegistry()
 	key := registerClient(t, reg, "client-disabled", "run-disabled", false)
 	manager := newStubGatewayTunnelManager()
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	body := []byte(`{"name":"ssh","protocol":"tcp","bindAddr":"0.0.0.0","listenPort":6000,"clientKey":"` + key + `","targetHost":"127.0.0.1","targetPort":22}`)
 	_, err := controller.APICreateGatewayTunnel(newGatewayContext(t, "POST", "/api/gateway-tunnels", body, nil))
@@ -221,7 +240,7 @@ func TestAPICreateGatewayTunnelCreatesAndSyncs(t *testing.T) {
 	reg := registry.NewClientRegistry()
 	key := registerClient(t, reg, "client-a", "run-a", true)
 	manager := newStubGatewayTunnelManager()
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	body := []byte(`{"name":"ssh","remark":"ops","protocol":"tcp","bindAddr":"127.0.0.1","listenPort":6000,"clientKey":"` + key + `","targetHost":"127.0.0.1","targetPort":22}`)
 	resp, err := controller.APICreateGatewayTunnel(newGatewayContext(t, "POST", "/api/gateway-tunnels", body, nil))
@@ -251,7 +270,7 @@ func TestAPIUpdateGatewayTunnelSyncsPreviousAndCurrentClients(t *testing.T) {
 		TargetHost: "127.0.0.1",
 		TargetPort: 22,
 	}
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	body := []byte(`{"name":"ssh","remark":"new","protocol":"udp","bindAddr":"127.0.0.1","listenPort":7000,"clientKey":"` + newKey + `","targetHost":"127.0.0.1","targetPort":53}`)
 	resp, err := controller.APIUpdateGatewayTunnel(newGatewayContext(t, "PUT", "/api/gateway-tunnels/t-1", body, map[string]string{"id": "t-1"}))
@@ -273,7 +292,7 @@ func TestAPIDeleteGatewayTunnelSyncsClient(t *testing.T) {
 		Name:      "ssh",
 		ClientKey: "client-a",
 	}
-	controller := NewController(&v1.ServerConfig{}, nil, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, nil, nil, manager, nil)
 
 	resp, err := controller.APIDeleteGatewayTunnel(newGatewayContext(t, "DELETE", "/api/gateway-tunnels/t-1", nil, map[string]string{"id": "t-1"}))
 	require.NoError(t, err)
@@ -288,7 +307,7 @@ func TestAPICreateGatewayTunnelSurfacesManagerValidationError(t *testing.T) {
 	key := registerClient(t, reg, "client-a", "run-a", true)
 	manager := newStubGatewayTunnelManager()
 	manager.createErr = errors.New("listenPort must be between 1 and 65535")
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	body := []byte(`{"name":"ssh","protocol":"tcp","bindAddr":"0.0.0.0","listenPort":0,"clientKey":"` + key + `","targetHost":"127.0.0.1","targetPort":22}`)
 	_, err := controller.APICreateGatewayTunnel(newGatewayContext(t, "POST", "/api/gateway-tunnels", body, nil))
@@ -313,7 +332,7 @@ func TestAPIGatewayTunnelExportYAML(t *testing.T) {
 		TargetPort: 22,
 		Status:     gatewaypkg.StatusOnline,
 	}
-	controller := NewController(&v1.ServerConfig{}, nil, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, nil, nil, manager, nil)
 
 	resp, err := controller.APIGatewayTunnelExport(newGatewayContext(t, "GET", "/api/gateway-tunnels/export", nil, nil))
 	require.NoError(t, err)
@@ -348,7 +367,7 @@ func TestAPIGatewayTunnelImportUpsert(t *testing.T) {
 		TargetHost: "127.0.0.1",
 		TargetPort: 22,
 	}
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	rawYAML := `version: 1
 tunnels:
@@ -391,7 +410,7 @@ tunnels:
 }
 
 func TestAPIGatewayTunnelImportRejectsInvalidYAML(t *testing.T) {
-	controller := NewController(&v1.ServerConfig{}, nil, nil, newStubGatewayTunnelManager())
+	controller := NewController(&v1.ServerConfig{}, nil, nil, newStubGatewayTunnelManager(), nil)
 
 	body, err := json.Marshal(map[string]string{"yaml": "not: [valid"})
 	require.NoError(t, err)
@@ -406,7 +425,7 @@ func TestAPIGatewayTunnelImportRejectsInvalidYAML(t *testing.T) {
 func TestAPIGatewayTunnelImportSupportsListYAML(t *testing.T) {
 	reg := registry.NewClientRegistry()
 	key := registerClient(t, reg, "client-a", "run-a", true)
-	controller := NewController(&v1.ServerConfig{}, reg, nil, newStubGatewayTunnelManager())
+	controller := NewController(&v1.ServerConfig{}, reg, nil, newStubGatewayTunnelManager(), nil)
 
 	rawYAML := `- name: ssh-main
   protocol: tcp
@@ -429,7 +448,7 @@ func TestAPIGatewayTunnelImportSupportsListYAML(t *testing.T) {
 }
 
 func TestAPIGatewayTunnelImportRejectsEmptyList(t *testing.T) {
-	controller := NewController(&v1.ServerConfig{}, nil, nil, newStubGatewayTunnelManager())
+	controller := NewController(&v1.ServerConfig{}, nil, nil, newStubGatewayTunnelManager(), nil)
 	body, err := json.Marshal(map[string]string{"yaml": "tunnels: []"})
 	require.NoError(t, err)
 
@@ -444,7 +463,7 @@ func TestAPIGatewayTunnelImportIsIdempotentOnRepeatedImport(t *testing.T) {
 	reg := registry.NewClientRegistry()
 	key := registerClient(t, reg, "client-a", "run-a", true)
 	manager := newStubGatewayTunnelManager()
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	rawYAML := `version: 1
 tunnels:
@@ -477,7 +496,7 @@ tunnels:
 func TestAPIGatewayTunnelImportAllowsUnknownClientKey(t *testing.T) {
 	reg := registry.NewClientRegistry()
 	manager := newStubGatewayTunnelManager()
-	controller := NewController(&v1.ServerConfig{}, reg, nil, manager)
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
 
 	rawYAML := `version: 1
 tunnels:
@@ -498,4 +517,47 @@ tunnels:
 	require.Equal(t, 1, result.Total)
 	require.Equal(t, 1, result.Created)
 	require.Equal(t, 0, result.Updated)
+}
+
+func TestAPIClientGatewaySystemInfoReturnsSnapshot(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	key := registerClient(t, reg, "client-a", "run-a", true)
+	manager := &stubGatewaySystemInfoManager{
+		info: msg.GatewaySystemInfo{
+			Hostname:         "host-a",
+			OS:               "linux",
+			Arch:             "amd64",
+			CurrentUser:      "fanli",
+			FRPCVersion:      "0.68.1-mix.21",
+			SelectedProtocol: "ss",
+			DefaultRouteIP:   "10.0.0.2",
+			CPUCount:         8,
+			Goroutines:       42,
+			Interfaces: []msg.GatewaySystemInterface{
+				{Name: "eth0", Flags: []string{"up"}, Addresses: []string{"10.0.0.2/24"}},
+			},
+			TopMemoryProcs: []msg.GatewaySystemProcess{
+				{PID: 123, Name: "frpc", MemoryRSS: 1024},
+			},
+			Gateway: msg.GatewaySystemGatewaySummary{
+				Enabled:     true,
+				TunnelCount: 2,
+				OnlineCount: 1,
+			},
+		},
+	}
+	controller := NewController(&v1.ServerConfig{}, reg, nil, newStubGatewayTunnelManager(), manager)
+
+	resp, err := controller.APIClientGatewaySystemInfo(newGatewayContext(t, "GET", "/api/clients/"+key+"/gateway-system-info", nil, map[string]string{"key": key}))
+	require.NoError(t, err)
+
+	payload, ok := resp.(model.GatewaySystemInfoResp)
+	require.True(t, ok)
+	require.Equal(t, key, payload.Key)
+	require.Equal(t, "127.0.0.1", payload.ObservedSourceIP)
+	require.Equal(t, "host-a", payload.Hostname)
+	require.Equal(t, "linux", payload.OS)
+	require.Len(t, payload.Interfaces, 1)
+	require.Len(t, payload.TopMemoryProcs, 1)
+	require.Equal(t, 2, payload.Gateway.TunnelCount)
 }

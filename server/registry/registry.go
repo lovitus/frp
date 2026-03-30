@@ -29,6 +29,11 @@ type ClientInfo struct {
 	Hostname            string
 	IP                  string
 	Version             string
+	Os                  string
+	Arch                string
+	PoolCount           int
+	LoginTimestamp      int64
+	Metas               map[string]string
 	SelectedProtocol    string
 	AllowGatewayTunnels bool
 	HasStableClientID   bool
@@ -60,6 +65,11 @@ func (cr *ClientRegistry) Register(
 	runID,
 	hostname,
 	version,
+	os,
+	arch string,
+	poolCount int,
+	loginTimestamp int64,
+	metas map[string]string,
 	remoteAddr,
 	selectedProtocol string,
 	allowGatewayTunnels bool,
@@ -100,6 +110,11 @@ func (cr *ClientRegistry) Register(
 	info.Hostname = hostname
 	info.IP = remoteAddr
 	info.Version = version
+	info.Os = os
+	info.Arch = arch
+	info.PoolCount = poolCount
+	info.LoginTimestamp = loginTimestamp
+	info.Metas = cloneMetas(metas)
 	info.SelectedProtocol = selectedProtocol
 	info.AllowGatewayTunnels = allowGatewayTunnels
 	info.HasStableClientID = rawClientID != ""
@@ -177,4 +192,15 @@ func (cr *ClientRegistry) composeClientKey(user, id string) string {
 	default:
 		return fmt.Sprintf("%s.%s", user, id)
 	}
+}
+
+func cloneMetas(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }

@@ -16,6 +16,7 @@ package model
 
 import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
+	"github.com/fatedier/frp/pkg/msg"
 )
 
 type ServerInfoResp struct {
@@ -41,20 +42,67 @@ type ServerInfoResp struct {
 }
 
 type ClientInfoResp struct {
-	Key                 string `json:"key"`
-	User                string `json:"user"`
-	ClientID            string `json:"clientID"`
-	RunID               string `json:"runID"`
-	Version             string `json:"version,omitempty"`
-	Hostname            string `json:"hostname"`
-	ClientIP            string `json:"clientIP,omitempty"`
-	SelectedProtocol    string `json:"selectedProtocol,omitempty"`
-	AllowGatewayTunnels bool   `json:"allowGatewayTunnels"`
-	HasStableClientID   bool   `json:"hasStableClientID"`
-	FirstConnectedAt    int64  `json:"firstConnectedAt"`
-	LastConnectedAt     int64  `json:"lastConnectedAt"`
-	DisconnectedAt      int64  `json:"disconnectedAt,omitempty"`
-	Online              bool   `json:"online"`
+	Key                 string            `json:"key"`
+	User                string            `json:"user"`
+	ClientID            string            `json:"clientID"`
+	RunID               string            `json:"runID"`
+	Version             string            `json:"version,omitempty"`
+	Hostname            string            `json:"hostname"`
+	ClientIP            string            `json:"clientIP,omitempty"`
+	Os                  string            `json:"os,omitempty"`
+	Arch                string            `json:"arch,omitempty"`
+	PoolCount           int               `json:"poolCount,omitempty"`
+	LoginTimestamp      int64             `json:"loginTimestamp,omitempty"`
+	Metas               map[string]string `json:"metas,omitempty"`
+	SelectedProtocol    string            `json:"selectedProtocol,omitempty"`
+	AllowGatewayTunnels bool              `json:"allowGatewayTunnels"`
+	HasStableClientID   bool              `json:"hasStableClientID"`
+	FirstConnectedAt    int64             `json:"firstConnectedAt"`
+	LastConnectedAt     int64             `json:"lastConnectedAt"`
+	DisconnectedAt      int64             `json:"disconnectedAt,omitempty"`
+	Online              bool              `json:"online"`
+}
+
+type GatewaySystemGatewaySummary msg.GatewaySystemGatewaySummary
+
+type GatewaySystemInfoResp struct {
+	Key              string                       `json:"key"`
+	DisplayName      string                       `json:"displayName"`
+	ClientID         string                       `json:"clientID"`
+	RunID            string                       `json:"runID"`
+	Hostname         string                       `json:"hostname"`
+	ObservedSourceIP string                       `json:"observedSourceIP,omitempty"`
+	OS               string                       `json:"os,omitempty"`
+	Arch             string                       `json:"arch,omitempty"`
+	KernelVersion    string                       `json:"kernelVersion,omitempty"`
+	Platform         string                       `json:"platform,omitempty"`
+	PlatformVersion  string                       `json:"platformVersion,omitempty"`
+	Timezone         string                       `json:"timezone,omitempty"`
+	UptimeSeconds    uint64                       `json:"uptimeSeconds,omitempty"`
+	CurrentUser      string                       `json:"currentUser,omitempty"`
+	FRPCVersion      string                       `json:"frpcVersion,omitempty"`
+	SelectedProtocol string                       `json:"selectedProtocol,omitempty"`
+	DefaultRouteIP   string                       `json:"defaultRouteIP,omitempty"`
+	CPUCount         int                          `json:"cpuCount,omitempty"`
+	Load1            float64                      `json:"load1,omitempty"`
+	Load5            float64                      `json:"load5,omitempty"`
+	Load15           float64                      `json:"load15,omitempty"`
+	MemoryTotal      uint64                       `json:"memoryTotal,omitempty"`
+	MemoryUsed       uint64                       `json:"memoryUsed,omitempty"`
+	MemoryAvailable  uint64                       `json:"memoryAvailable,omitempty"`
+	SwapTotal        uint64                       `json:"swapTotal,omitempty"`
+	SwapUsed         uint64                       `json:"swapUsed,omitempty"`
+	DiskPath         string                       `json:"diskPath,omitempty"`
+	DiskTotal        uint64                       `json:"diskTotal,omitempty"`
+	DiskUsed         uint64                       `json:"diskUsed,omitempty"`
+	FRPCPID          int32                        `json:"frpcPid,omitempty"`
+	FRPCStartTime    int64                        `json:"frpcStartTime,omitempty"`
+	Goroutines       int                          `json:"goroutines,omitempty"`
+	CollectedAt      int64                        `json:"collectedAt,omitempty"`
+	Interfaces       []msg.GatewaySystemInterface `json:"interfaces,omitempty"`
+	TopMemoryProcs   []msg.GatewaySystemProcess   `json:"topMemoryProcs,omitempty"`
+	Gateway          GatewaySystemGatewaySummary  `json:"gateway"`
+	Metas            map[string]string            `json:"metas,omitempty"`
 }
 
 type BaseOutConf struct {

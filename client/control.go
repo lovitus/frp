@@ -55,6 +55,7 @@ type SessionContext struct {
 type GatewayTunnelController interface {
 	ApplyGatewayTunnels([]msg.GatewayTunnelConfig) error
 	BuildGatewayTunnelStatusResponse(requestID string, tunnelIDs []string) *msg.GatewayTunnelStatusResponse
+	BuildGatewaySystemInfoResponse(requestID string) *msg.GatewaySystemInfoResponse
 }
 
 type Control struct {
@@ -239,6 +240,21 @@ func (ctl *Control) handleGatewayTunnelStatusRequest(m msg.Message) {
 	}
 }
 
+func (ctl *Control) handleGatewaySystemInfoRequest(m msg.Message) {
+	xl := ctl.xl
+	inMsg := m.(*msg.GatewaySystemInfoRequest)
+	if ctl.gatewayTunnelManager == nil {
+		return
+	}
+	resp := ctl.gatewayTunnelManager.BuildGatewaySystemInfoResponse(inMsg.RequestID)
+	if resp == nil {
+		return
+	}
+	if err := ctl.msgDispatcher.Send(resp); err != nil {
+		xl.Warnf("send gateway system info response error: %v", err)
+	}
+}
+
 // closeSession closes the control connection.
 func (ctl *Control) closeSession() {
 	ctl.sessionCtx.Conn.Close()
@@ -276,6 +292,7 @@ func (ctl *Control) registerMsgHandlers() {
 	ctl.msgDispatcher.RegisterHandler(&msg.Pong{}, ctl.handlePong)
 	ctl.msgDispatcher.RegisterHandler(&msg.GatewayTunnelsSync{}, ctl.handleGatewayTunnelsSync)
 	ctl.msgDispatcher.RegisterHandler(&msg.GatewayTunnelStatusRequest{}, msg.AsyncHandler(ctl.handleGatewayTunnelStatusRequest))
+	ctl.msgDispatcher.RegisterHandler(&msg.GatewaySystemInfoRequest{}, msg.AsyncHandler(ctl.handleGatewaySystemInfoRequest))
 }
 
 func (ctl *Control) SendMessage(m msg.Message) error {

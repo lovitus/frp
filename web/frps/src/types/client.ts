@@ -6,6 +6,10 @@ export interface ClientInfoData {
   version?: string
   hostname: string
   clientIP?: string
+  os?: string
+  arch?: string
+  poolCount?: number
+  loginTimestamp?: number
   selectedProtocol?: string
   allowGatewayTunnels: boolean
   hasStableClientID: boolean

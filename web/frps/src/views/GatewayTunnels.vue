@@ -77,20 +77,203 @@
         >
           <div class="snapshot-head">
             <span class="snapshot-name">{{ client.displayName }}</span>
-            <el-tag size="small" :type="client.online ? 'success' : 'info'">
-              {{ client.online ? 'online' : 'offline' }}
-            </el-tag>
+            <div class="snapshot-head-actions">
+              <el-tag size="small" :type="client.online ? 'success' : 'info'">
+                {{ client.online ? 'online' : 'offline' }}
+              </el-tag>
+              <ActionButton
+                variant="outline"
+                size="small"
+                @click="openSystemInfoDialog(client)"
+              >
+                More
+              </ActionButton>
+            </div>
           </div>
           <div v-if="buildClientSubLabel(client)" class="snapshot-meta">
             {{ buildClientSubLabel(client) }}
           </div>
-          <div v-if="buildClientMetaLine(client)" class="snapshot-meta">
-            {{ buildClientMetaLine(client) }}
+          <div class="snapshot-grid">
+            <div v-if="buildClientMetaLine(client)" class="snapshot-cell">
+              <span class="snapshot-cell-label">Build</span>
+              <span class="snapshot-cell-value">{{ buildClientMetaLine(client) }}</span>
+            </div>
+            <div v-if="client.platformLabel" class="snapshot-cell">
+              <span class="snapshot-cell-label">Platform</span>
+              <span class="snapshot-cell-value">{{ client.platformLabel }}</span>
+            </div>
+            <div v-if="client.poolCount" class="snapshot-cell">
+              <span class="snapshot-cell-label">Pool</span>
+              <span class="snapshot-cell-value">{{ client.poolCount }}</span>
+            </div>
+            <div v-if="client.loginAtAgo" class="snapshot-cell">
+              <span class="snapshot-cell-label">Login</span>
+              <span class="snapshot-cell-value">
+                {{ formatSnapshotTime(client.loginTimestamp) }}
+              </span>
+            </div>
+            <div v-if="client.runID" class="snapshot-cell">
+              <span class="snapshot-cell-label">RunID</span>
+              <span class="snapshot-cell-value">{{ client.shortRunId }}</span>
+            </div>
+            <div class="snapshot-cell">
+              <span class="snapshot-cell-label">First Seen</span>
+              <span class="snapshot-cell-value">
+                {{ formatSnapshotTime(client.firstConnectedAt) }}
+              </span>
+            </div>
+            <div class="snapshot-cell">
+              <span class="snapshot-cell-label">Last Seen</span>
+              <span class="snapshot-cell-value">
+                {{ formatSnapshotTime(client.lastConnectedAt) }}
+              </span>
+            </div>
+            <div v-if="client.disconnectedAt" class="snapshot-cell">
+              <span class="snapshot-cell-label">Disconnected</span>
+              <span class="snapshot-cell-value">
+                {{ formatSnapshotTime(client.disconnectedAt) }}
+              </span>
+            </div>
+            <div class="snapshot-cell">
+              <span class="snapshot-cell-label">Key</span>
+              <span class="snapshot-cell-value">{{ client.key }}</span>
+            </div>
           </div>
-          <div class="snapshot-meta">key {{ client.key }}</div>
+          <div v-if="client.metasArray.length > 0" class="snapshot-metas">
+            <span
+              v-for="item in client.metasArray"
+              :key="`${client.key}-${item.key}`"
+              class="snapshot-chip"
+            >
+              {{ item.key }}={{ item.value }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
+
+    <BaseDialog
+      v-model="systemInfoDialogVisible"
+      title="Gateway System Info"
+      width="920px"
+      :append-to-body="true"
+      :is-mobile="isMobile"
+    >
+      <div v-loading="systemInfoLoading" class="system-info-dialog">
+        <template v-if="systemInfo">
+          <section class="system-info-section">
+            <div class="system-info-section-title">Summary</div>
+            <div class="system-info-grid">
+              <div class="system-info-item"><span>Client</span><strong>{{ systemInfo.displayName }}</strong></div>
+              <div class="system-info-item"><span>Hostname</span><strong>{{ systemInfo.hostname || '-' }}</strong></div>
+              <div class="system-info-item"><span>OS / Arch</span><strong>{{ [systemInfo.os, systemInfo.arch].filter(Boolean).join(' / ') || '-' }}</strong></div>
+              <div class="system-info-item"><span>Kernel</span><strong>{{ [systemInfo.platform, systemInfo.platformVersion, systemInfo.kernelVersion].filter(Boolean).join(' / ') || '-' }}</strong></div>
+              <div class="system-info-item"><span>frpc</span><strong>{{ [systemInfo.frpcVersion ? `v${systemInfo.frpcVersion}` : '', systemInfo.selectedProtocol].filter(Boolean).join(' • ') || '-' }}</strong></div>
+              <div class="system-info-item"><span>User</span><strong>{{ systemInfo.currentUser || '-' }}</strong></div>
+              <div class="system-info-item"><span>ClientID</span><strong>{{ systemInfo.clientID || '-' }}</strong></div>
+              <div class="system-info-item"><span>RunID</span><strong>{{ systemInfo.runID || '-' }}</strong></div>
+              <div class="system-info-item"><span>Source IP</span><strong>{{ systemInfo.observedSourceIP || '-' }}</strong></div>
+              <div class="system-info-item"><span>Default Route</span><strong>{{ systemInfo.defaultRouteIP || '-' }}</strong></div>
+              <div class="system-info-item"><span>Timezone</span><strong>{{ systemInfo.timezone || '-' }}</strong></div>
+              <div class="system-info-item"><span>Uptime</span><strong>{{ formatDurationSeconds(systemInfo.uptimeSeconds) }}</strong></div>
+              <div class="system-info-item"><span>Collected</span><strong>{{ formatUnixSnapshot(systemInfo.collectedAt) }}</strong></div>
+              <div class="system-info-item"><span>frpc Start</span><strong>{{ formatUnixSnapshot(systemInfo.frpcStartTime) }}</strong></div>
+            </div>
+          </section>
+
+          <section class="system-info-section">
+            <div class="system-info-section-title">Resources</div>
+            <div class="system-info-grid">
+              <div class="system-info-item"><span>CPU</span><strong>{{ systemInfo.cpuCount || 0 }} cores</strong></div>
+              <div class="system-info-item"><span>Load</span><strong>{{ formatLoad(systemInfo.load1, systemInfo.load5, systemInfo.load15) }}</strong></div>
+              <div class="system-info-item"><span>Memory</span><strong>{{ formatBytes(systemInfo.memoryUsed) }} / {{ formatBytes(systemInfo.memoryTotal) }}</strong></div>
+              <div class="system-info-item"><span>Memory Free</span><strong>{{ formatBytes(systemInfo.memoryAvailable) }}</strong></div>
+              <div class="system-info-item"><span>Swap</span><strong>{{ formatBytes(systemInfo.swapUsed) }} / {{ formatBytes(systemInfo.swapTotal) }}</strong></div>
+              <div class="system-info-item"><span>Disk</span><strong>{{ formatBytes(systemInfo.diskUsed) }} / {{ formatBytes(systemInfo.diskTotal) }}</strong></div>
+              <div class="system-info-item"><span>Disk Path</span><strong>{{ systemInfo.diskPath || '-' }}</strong></div>
+              <div class="system-info-item"><span>PID / Goroutines</span><strong>{{ systemInfo.frpcPid || '-' }} / {{ systemInfo.goroutines || 0 }}</strong></div>
+            </div>
+          </section>
+
+          <section class="system-info-section">
+            <div class="system-info-section-title">Gateway</div>
+            <div class="system-info-grid">
+              <div class="system-info-item"><span>Enabled</span><strong>{{ systemInfo.gateway.enabled ? 'yes' : 'no' }}</strong></div>
+              <div class="system-info-item"><span>Tunnels</span><strong>{{ systemInfo.gateway.tunnel_count }}</strong></div>
+              <div class="system-info-item"><span>Online</span><strong>{{ systemInfo.gateway.online_count }}</strong></div>
+              <div class="system-info-item"><span>Pending</span><strong>{{ systemInfo.gateway.pending_count }}</strong></div>
+              <div class="system-info-item"><span>Disabled</span><strong>{{ systemInfo.gateway.disabled_count }}</strong></div>
+              <div class="system-info-item"><span>Last Apply Error</span><strong>{{ systemInfo.gateway.last_apply_err || '-' }}</strong></div>
+            </div>
+          </section>
+
+          <section class="system-info-section">
+            <div class="system-info-section-title">Network Interfaces</div>
+            <div v-if="systemInfo.interfaces && systemInfo.interfaces.length > 0" class="system-info-interface-list">
+              <article
+                v-for="item in systemInfo.interfaces"
+                :key="item.name"
+                class="system-info-interface"
+              >
+                <div class="system-info-interface-name">{{ item.name }}</div>
+                <div class="system-info-interface-meta">{{ (item.flags || []).join(', ') || '-' }}</div>
+                <div class="system-info-interface-addresses">
+                  {{ (item.addresses || []).join(' • ') || '-' }}
+                </div>
+              </article>
+            </div>
+            <div v-else class="system-info-empty">No interfaces reported.</div>
+          </section>
+
+          <section class="system-info-section">
+            <div class="system-info-section-title">Top Memory Processes</div>
+            <div v-if="systemInfo.topMemoryProcs && systemInfo.topMemoryProcs.length > 0" class="system-info-process-list">
+              <div class="system-info-process-head">
+                <span>PID</span>
+                <span>Name</span>
+                <span>RSS</span>
+                <span>Percent</span>
+              </div>
+              <div
+                v-for="proc in systemInfo.topMemoryProcs"
+                :key="`${proc.pid}-${proc.name}`"
+                class="system-info-process-row"
+              >
+                <span>{{ proc.pid }}</span>
+                <span>{{ proc.name || '-' }}</span>
+                <span>{{ formatBytes(proc.memory_rss) }}</span>
+                <span>{{ formatPercent(proc.memory_percent) }}</span>
+              </div>
+            </div>
+            <div v-else class="system-info-empty">No process memory data available.</div>
+          </section>
+
+          <section v-if="systemInfo.metas && Object.keys(systemInfo.metas).length > 0" class="system-info-section">
+            <div class="system-info-section-title">Metas</div>
+            <div class="snapshot-metas">
+              <span
+                v-for="(value, key) in systemInfo.metas"
+                :key="`meta-${key}`"
+                class="snapshot-chip"
+              >
+                {{ key }}={{ value }}
+              </span>
+            </div>
+          </section>
+        </template>
+        <div v-else-if="!systemInfoLoading" class="system-info-empty">
+          No system info loaded.
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <ActionButton variant="outline" @click="systemInfoDialogVisible = false">
+            Close
+          </ActionButton>
+        </div>
+      </template>
+    </BaseDialog>
 
     <div class="filter-row">
       <el-input
@@ -425,7 +608,7 @@ import ActionButton from '@shared/components/ActionButton.vue'
 import BaseDialog from '@shared/components/BaseDialog.vue'
 import ConfirmDialog from '@shared/components/ConfirmDialog.vue'
 import { useResponsive } from '../composables/useResponsive'
-import { getClients } from '../api/client'
+import { getClientGatewaySystemInfo, getClients } from '../api/client'
 import {
   createGatewayTunnel,
   deleteGatewayTunnel,
@@ -436,8 +619,9 @@ import {
 } from '../api/gateway'
 import type { GatewayProtocol, GatewayTunnelData } from '../types/gateway'
 import type { ClientInfoData } from '../types/client'
+import type { GatewaySystemInfoData } from '../types/client-system'
 import { Client } from '../utils/client'
-import { formatDistanceToNow } from '../utils/format'
+import { formatDistanceToNow, formatFileSize } from '../utils/format'
 
 const { isMobile } = useResponsive()
 
@@ -463,6 +647,9 @@ const importYAML = ref('')
 const importing = ref(false)
 const importFileInputRef = ref<HTMLInputElement>()
 const formRef = ref<FormInstance>()
+const systemInfoDialogVisible = ref(false)
+const systemInfoLoading = ref(false)
+const systemInfo = ref<GatewaySystemInfoData | null>(null)
 
 const formState = reactive({
   name: '',
@@ -642,6 +829,85 @@ const formatUpdatedAt = (value: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return formatDistanceToNow(date)
+}
+
+const formatBytes = (value?: number) => {
+  return formatFileSize(value || 0)
+}
+
+const formatPercent = (value?: number) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+  return `${value.toFixed(2)}%`
+}
+
+const formatLoad = (load1?: number, load5?: number, load15?: number) => {
+  const values = [load1, load5, load15].map((value) =>
+    typeof value === 'number' && !Number.isNaN(value) ? value.toFixed(2) : '-',
+  )
+  return values.join(' / ')
+}
+
+const formatDurationSeconds = (value?: number) => {
+  if (!value || value <= 0) return '-'
+  const days = Math.floor(value / 86400)
+  const hours = Math.floor((value % 86400) / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
+  const seconds = Math.floor(value % 60)
+  const parts = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0 || parts.length > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || parts.length > 0) parts.push(`${minutes}m`)
+  parts.push(`${seconds}s`)
+  return parts.join(' ')
+}
+
+const unixSnapshotFormatter = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+const formatUnixSnapshot = (value?: number) => {
+  if (!value || value <= 0) return '-'
+  const date = new Date(value * 1000)
+  if (Number.isNaN(date.getTime())) return '-'
+  return `${unixSnapshotFormatter.format(date)} (${formatDistanceToNow(date)})`
+}
+
+const openSystemInfoDialog = async (client: Client) => {
+  systemInfoDialogVisible.value = true
+  systemInfoLoading.value = true
+  systemInfo.value = null
+  try {
+    systemInfo.value = await getClientGatewaySystemInfo(client.key)
+  } catch (error: any) {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Failed to fetch gateway system info: ' + error.message,
+    })
+  } finally {
+    systemInfoLoading.value = false
+  }
+}
+
+const snapshotTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+const formatSnapshotTime = (value?: Date) => {
+  if (!value || Number.isNaN(value.getTime())) return '-'
+  return `${snapshotTimeFormatter.format(value)} (${formatDistanceToNow(value)})`
 }
 
 const resetForm = () => {
@@ -1062,13 +1328,19 @@ onMounted(() => {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .snapshot-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.snapshot-head-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -1082,6 +1354,161 @@ onMounted(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   word-break: break-word;
+}
+
+.snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.snapshot-cell {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.snapshot-cell-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--el-text-color-secondary);
+}
+
+.snapshot-cell-value {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
+}
+
+.snapshot-metas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.snapshot-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  word-break: break-word;
+}
+
+.system-info-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.system-info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.system-info-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.system-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.system-info-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-extra-light);
+}
+
+.system-info-item span {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--el-text-color-secondary);
+}
+
+.system-info-item strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
+}
+
+.system-info-interface-list,
+.system-info-process-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.system-info-interface {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-extra-light);
+}
+
+.system-info-interface-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.system-info-interface-meta,
+.system-info-interface-addresses,
+.system-info-empty {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  word-break: break-word;
+}
+
+.system-info-process-head,
+.system-info-process-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 140px 100px;
+  gap: 10px;
+  align-items: center;
+}
+
+.system-info-process-head {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--el-text-color-secondary);
+  padding: 0 12px;
+}
+
+.system-info-process-row {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-extra-light);
+  font-size: 13px;
+  color: var(--el-text-color-primary);
 }
 
 .filter-row {

@@ -36,6 +36,8 @@ const (
 	TypeGatewayTunnelsSync          = 'g'
 	TypeGatewayTunnelStatusRequest  = 'j'
 	TypeGatewayTunnelStatusResponse = 'k'
+	TypeGatewaySystemInfoRequest    = 'l'
+	TypeGatewaySystemInfoResponse   = 'q'
 	TypeNatHoleVisitor              = 'i'
 	TypeNatHoleClient               = 'n'
 	TypeNatHoleResp                 = 'm'
@@ -60,6 +62,8 @@ var msgTypeMap = map[byte]any{
 	TypeGatewayTunnelsSync:          GatewayTunnelsSync{},
 	TypeGatewayTunnelStatusRequest:  GatewayTunnelStatusRequest{},
 	TypeGatewayTunnelStatusResponse: GatewayTunnelStatusResponse{},
+	TypeGatewaySystemInfoRequest:    GatewaySystemInfoRequest{},
+	TypeGatewaySystemInfoResponse:   GatewaySystemInfoResponse{},
 	TypeNatHoleVisitor:              NatHoleVisitor{},
 	TypeNatHoleClient:               NatHoleClient{},
 	TypeNatHoleResp:                 NatHoleResp{},
@@ -230,6 +234,74 @@ type GatewayTunnelStatus struct {
 type GatewayTunnelStatusResponse struct {
 	RequestID string                `json:"request_id,omitempty"`
 	Statuses  []GatewayTunnelStatus `json:"statuses,omitempty"`
+}
+
+type GatewaySystemInfoRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+}
+
+type GatewaySystemInterface struct {
+	Name      string   `json:"name,omitempty"`
+	Flags     []string `json:"flags,omitempty"`
+	Addresses []string `json:"addresses,omitempty"`
+}
+
+type GatewaySystemProcess struct {
+	PID           int32   `json:"pid,omitempty"`
+	Name          string  `json:"name,omitempty"`
+	MemoryRSS     uint64  `json:"memory_rss,omitempty"`
+	MemoryPercent float32 `json:"memory_percent,omitempty"`
+}
+
+type GatewaySystemGatewaySummary struct {
+	Enabled       bool   `json:"enabled,omitempty"`
+	TunnelCount   int    `json:"tunnel_count,omitempty"`
+	OnlineCount   int    `json:"online_count,omitempty"`
+	PendingCount  int    `json:"pending_count,omitempty"`
+	DisabledCount int    `json:"disabled_count,omitempty"`
+	LastApplyErr  string `json:"last_apply_err,omitempty"`
+}
+
+type GatewaySystemInfo struct {
+	CollectedAt      int64                       `json:"collected_at,omitempty"`
+	Hostname         string                      `json:"hostname,omitempty"`
+	OS               string                      `json:"os,omitempty"`
+	Arch             string                      `json:"arch,omitempty"`
+	KernelVersion    string                      `json:"kernel_version,omitempty"`
+	Platform         string                      `json:"platform,omitempty"`
+	PlatformVersion  string                      `json:"platform_version,omitempty"`
+	Timezone         string                      `json:"timezone,omitempty"`
+	UptimeSeconds    uint64                      `json:"uptime_seconds,omitempty"`
+	CurrentUser      string                      `json:"current_user,omitempty"`
+	FRPCVersion      string                      `json:"frpc_version,omitempty"`
+	ClientID         string                      `json:"client_id,omitempty"`
+	RunID            string                      `json:"run_id,omitempty"`
+	SelectedProtocol string                      `json:"selected_protocol,omitempty"`
+	DefaultRouteIP   string                      `json:"default_route_ip,omitempty"`
+	CPUCount         int                         `json:"cpu_count,omitempty"`
+	Load1            float64                     `json:"load_1,omitempty"`
+	Load5            float64                     `json:"load_5,omitempty"`
+	Load15           float64                     `json:"load_15,omitempty"`
+	MemoryTotal      uint64                      `json:"memory_total,omitempty"`
+	MemoryUsed       uint64                      `json:"memory_used,omitempty"`
+	MemoryAvailable  uint64                      `json:"memory_available,omitempty"`
+	SwapTotal        uint64                      `json:"swap_total,omitempty"`
+	SwapUsed         uint64                      `json:"swap_used,omitempty"`
+	DiskPath         string                      `json:"disk_path,omitempty"`
+	DiskTotal        uint64                      `json:"disk_total,omitempty"`
+	DiskUsed         uint64                      `json:"disk_used,omitempty"`
+	FRPCPID          int32                       `json:"frpc_pid,omitempty"`
+	FRPCStartTime    int64                       `json:"frpc_start_time,omitempty"`
+	Goroutines       int                         `json:"goroutines,omitempty"`
+	Interfaces       []GatewaySystemInterface    `json:"interfaces,omitempty"`
+	TopMemoryProcs   []GatewaySystemProcess      `json:"top_memory_procs,omitempty"`
+	Gateway          GatewaySystemGatewaySummary `json:"gateway,omitempty"`
+	Metas            map[string]string           `json:"metas,omitempty"`
+}
+
+type GatewaySystemInfoResponse struct {
+	RequestID string            `json:"request_id,omitempty"`
+	Info      GatewaySystemInfo `json:"info,omitempty"`
 }
 
 type NatHoleVisitor struct {

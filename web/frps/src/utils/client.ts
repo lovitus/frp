@@ -9,6 +9,10 @@ export class Client {
   version: string
   hostname: string
   ip: string
+  os: string
+  arch: string
+  poolCount: number
+  loginTimestamp?: Date
   selectedProtocol: string
   allowGatewayTunnels: boolean
   hasStableClientID: boolean
@@ -26,6 +30,12 @@ export class Client {
     this.version = data.version || ''
     this.hostname = data.hostname
     this.ip = data.clientIP || ''
+    this.os = data.os || ''
+    this.arch = data.arch || ''
+    this.poolCount = data.poolCount || 0
+    if (data.loginTimestamp && data.loginTimestamp > 0) {
+      this.loginTimestamp = new Date(data.loginTimestamp * 1000)
+    }
     this.selectedProtocol = data.selectedProtocol || ''
     this.allowGatewayTunnels = data.allowGatewayTunnels
     this.hasStableClientID = data.hasStableClientID
@@ -52,6 +62,15 @@ export class Client {
 
   get shortRunId(): string {
     return this.runID.substring(0, 8)
+  }
+
+  get platformLabel(): string {
+    return [this.os, this.arch].filter(Boolean).join(' / ')
+  }
+
+  get loginAtAgo(): string {
+    if (!this.loginTimestamp) return ''
+    return formatDistanceToNow(this.loginTimestamp)
   }
 
   get firstConnectedAgo(): string {

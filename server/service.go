@@ -124,6 +124,7 @@ type Service struct {
 
 	sshTunnelGateway     *ssh.Gateway
 	gatewayTunnelManager *GatewayTunnelManager
+	systemInfoManager    *SystemInfoManager
 
 	// Auth runtime and encryption materials
 	auth *auth.ServerAuth
@@ -186,6 +187,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		ctx:               context.Background(),
 	}
 	svr.gatewayTunnelManager = NewGatewayTunnelManager(svr.lookupClientByKey, svr.sendMessageToClientKey)
+	svr.systemInfoManager = NewSystemInfoManager(svr.sendMessageToClientKey)
 	if webServer != nil {
 		webServer.RouteRegister(svr.registerRouteHandlers)
 	}
@@ -667,6 +669,11 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 		loginMsg.RunID,
 		loginMsg.Hostname,
 		loginMsg.Version,
+		loginMsg.Os,
+		loginMsg.Arch,
+		loginMsg.PoolCount,
+		loginMsg.Timestamp,
+		loginMsg.Metas,
 		remoteAddr,
 		loginMsg.SelectedProtocol,
 		loginMsg.AllowGatewayTunnels,
@@ -679,6 +686,9 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	ctl.SetClientKey(clientKey)
 	if svr.gatewayTunnelManager != nil {
 		ctl.SetGatewayTunnelStatusHandler(svr.gatewayTunnelManager.HandleStatusResponse)
+	}
+	if svr.systemInfoManager != nil {
+		ctl.SetGatewaySystemInfoHandler(svr.systemInfoManager.HandleResponse)
 	}
 
 	ctl.Start()
