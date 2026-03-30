@@ -76,7 +76,12 @@
           class="snapshot-item"
         >
           <div class="snapshot-head">
-            <span class="snapshot-name">{{ client.displayName }}</span>
+            <div class="snapshot-head-main">
+              <span class="snapshot-name">{{ client.displayName }}</span>
+              <div v-if="buildClientSubLabel(client)" class="snapshot-subline">
+                {{ buildClientSubLabel(client) }}
+              </div>
+            </div>
             <div class="snapshot-head-actions">
               <el-tag size="small" :type="client.online ? 'success' : 'info'">
                 {{ client.online ? 'online' : 'offline' }}
@@ -90,54 +95,46 @@
               </ActionButton>
             </div>
           </div>
-          <div v-if="buildClientSubLabel(client)" class="snapshot-meta">
-            {{ buildClientSubLabel(client) }}
+          <div
+            v-if="[buildClientMetaLine(client), client.platformLabel, client.poolCount ? `pool ${client.poolCount}` : '']
+              .filter(Boolean)
+              .join(' • ')"
+            class="snapshot-meta"
+          >
+            {{
+              [buildClientMetaLine(client), client.platformLabel, client.poolCount ? `pool ${client.poolCount}` : '']
+                .filter(Boolean)
+                .join(' • ')
+            }}
           </div>
-          <div class="snapshot-grid">
-            <div v-if="buildClientMetaLine(client)" class="snapshot-cell">
-              <span class="snapshot-cell-label">Build</span>
-              <span class="snapshot-cell-value">{{ buildClientMetaLine(client) }}</span>
-            </div>
-            <div v-if="client.platformLabel" class="snapshot-cell">
-              <span class="snapshot-cell-label">Platform</span>
-              <span class="snapshot-cell-value">{{ client.platformLabel }}</span>
-            </div>
-            <div v-if="client.poolCount" class="snapshot-cell">
-              <span class="snapshot-cell-label">Pool</span>
-              <span class="snapshot-cell-value">{{ client.poolCount }}</span>
-            </div>
-            <div v-if="client.loginAtAgo" class="snapshot-cell">
-              <span class="snapshot-cell-label">Login</span>
-              <span class="snapshot-cell-value">
-                {{ formatSnapshotTime(client.loginTimestamp) }}
-              </span>
-            </div>
-            <div v-if="client.runID" class="snapshot-cell">
-              <span class="snapshot-cell-label">RunID</span>
-              <span class="snapshot-cell-value">{{ client.shortRunId }}</span>
-            </div>
-            <div class="snapshot-cell">
-              <span class="snapshot-cell-label">First Seen</span>
-              <span class="snapshot-cell-value">
-                {{ formatSnapshotTime(client.firstConnectedAt) }}
-              </span>
-            </div>
-            <div class="snapshot-cell">
-              <span class="snapshot-cell-label">Last Seen</span>
-              <span class="snapshot-cell-value">
-                {{ formatSnapshotTime(client.lastConnectedAt) }}
-              </span>
-            </div>
-            <div v-if="client.disconnectedAt" class="snapshot-cell">
-              <span class="snapshot-cell-label">Disconnected</span>
-              <span class="snapshot-cell-value">
-                {{ formatSnapshotTime(client.disconnectedAt) }}
-              </span>
-            </div>
-            <div class="snapshot-cell">
-              <span class="snapshot-cell-label">Key</span>
-              <span class="snapshot-cell-value">{{ client.key }}</span>
-            </div>
+          <div class="snapshot-time-line">
+            <span v-if="client.loginTimestamp" class="snapshot-time-pill">
+              <span class="snapshot-time-label">Login</span>
+              <span class="snapshot-time-value">{{ formatSnapshotAgo(client.loginTimestamp) }}</span>
+            </span>
+            <span class="snapshot-time-pill">
+              <span class="snapshot-time-label">First</span>
+              <span class="snapshot-time-value">{{ formatSnapshotAgo(client.firstConnectedAt) }}</span>
+            </span>
+            <span class="snapshot-time-pill">
+              <span class="snapshot-time-label">Last</span>
+              <span class="snapshot-time-value">{{ formatSnapshotAgo(client.lastConnectedAt) }}</span>
+            </span>
+            <span v-if="client.disconnectedAt" class="snapshot-time-pill">
+              <span class="snapshot-time-label">Offline</span>
+              <span class="snapshot-time-value">{{ formatSnapshotAgo(client.disconnectedAt) }}</span>
+            </span>
+          </div>
+          <div class="snapshot-absolute-line">
+            <span v-if="client.loginTimestamp">Login {{ formatSnapshotAbsolute(client.loginTimestamp) }}</span>
+            <span>First {{ formatSnapshotAbsolute(client.firstConnectedAt) }}</span>
+            <span>Last {{ formatSnapshotAbsolute(client.lastConnectedAt) }}</span>
+            <span v-if="client.disconnectedAt">Offline {{ formatSnapshotAbsolute(client.disconnectedAt) }}</span>
+          </div>
+          <div class="snapshot-identity-line">
+            <span>Key {{ client.key }}</span>
+            <span v-if="client.runID">Run {{ client.shortRunId }}</span>
+            <span v-if="client.metasArray.length > 0">Meta {{ client.metasArray.length }}</span>
           </div>
           <div v-if="client.metasArray.length > 0" class="snapshot-metas">
             <span
@@ -1186,9 +1183,14 @@ const snapshotTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour12: false,
 })
 
-const formatSnapshotTime = (value?: Date) => {
+const formatSnapshotAgo = (value?: Date) => {
   if (!value || Number.isNaN(value.getTime())) return '-'
-  return `${snapshotTimeFormatter.format(value)} (${formatDistanceToNow(value)})`
+  return formatDistanceToNow(value)
+}
+
+const formatSnapshotAbsolute = (value?: Date) => {
+  if (!value || Number.isNaN(value.getTime())) return '-'
+  return snapshotTimeFormatter.format(value)
 }
 
 const resetForm = () => {
@@ -1671,21 +1673,36 @@ onMounted(() => {
 
 .snapshot-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+}
+
+.snapshot-head-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .snapshot-head-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .snapshot-name {
   font-size: 14px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+  line-height: 1.2;
+}
+
+.snapshot-subline {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  word-break: break-word;
 }
 
 .snapshot-meta {
@@ -1694,21 +1711,20 @@ onMounted(() => {
   word-break: break-word;
 }
 
-.snapshot-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 12px;
-}
-
-.snapshot-cell {
-  min-width: 0;
+.snapshot-time-line {
   display: flex;
-  gap: 6px;
-  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }
 
-.snapshot-cell-label {
-  flex-shrink: 0;
+.snapshot-time-pill {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.snapshot-time-label {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1716,11 +1732,20 @@ onMounted(() => {
   color: var(--el-text-color-secondary);
 }
 
-.snapshot-cell-value {
-  min-width: 0;
+.snapshot-time-value {
   font-size: 12px;
   color: var(--el-text-color-primary);
   word-break: break-word;
+}
+
+.snapshot-absolute-line,
+.snapshot-identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
 }
 
 .snapshot-metas {
