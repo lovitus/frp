@@ -24,10 +24,9 @@ go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./se
 ## Stable Release Flow
 
 1. Merge the desired `dev` state into `master`.
-2. Update `pkg/util/version/version.go` if the binary version needs to change.
-3. Update `Release.md` with curated highlights, compatibility notes, and operational guidance.
-4. Ensure the working tree is clean and the previous tag you plan to supersede is not being reused.
-5. Create and push an annotated tag. A green branch CI run alone does not create a GitHub Release; only a pushed `v*` tag triggers the package and publish jobs.
+2. Update `Release.md` with curated highlights, compatibility notes, and operational guidance.
+3. Ensure the working tree is clean and the previous tag you plan to supersede is not being reused.
+4. Create and push an annotated tag. A green branch CI run alone does not create a GitHub Release; only a pushed `v*` tag triggers the package and publish jobs.
 
 ```bash
 git checkout master
@@ -46,9 +45,10 @@ When a `v*` tag is pushed, `.github/workflows/ci-release.yml` will:
 2. Run the Go validation suite.
 3. Run `./hack/run-mix-bench.sh`.
 4. Cross-build packaged binaries for all configured OS/arch targets via `./package.sh`.
-5. Generate SHA256 checksums for the packaged artifacts.
-6. Generate release notes by combining `Release.md` with an automated git changelog.
-7. Create or update the GitHub Release with a title prefixed by the Asia/Singapore build timestamp, then upload all packages directly from Actions.
+5. Inject the tag version into binaries during packaging, then verify packaged archive names, archive roots, and `frps --version` all match the pushed tag.
+6. Generate SHA256 checksums for the packaged artifacts.
+7. Generate release notes by combining `Release.md` with an automated git changelog.
+8. Create or update the GitHub Release with a title prefixed by the Asia/Singapore build timestamp, then upload all packages directly from Actions.
 
 The workflow never depends on a local workstation to upload release binaries.
 

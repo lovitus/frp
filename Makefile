@@ -1,6 +1,13 @@
 export PATH := $(PATH):`go env GOPATH`/bin
 export GO111MODULE=on
-LDFLAGS := -s -w
+BASE_LDFLAGS := -s -w
+VERSION ?= $(shell git describe --tags --match 'v*' --always --dirty 2>/dev/null | sed 's/^v//')
+ifeq ($(origin LDFLAGS), undefined)
+LDFLAGS := $(BASE_LDFLAGS)
+ifneq ($(strip $(VERSION)),)
+LDFLAGS += -X github.com/fatedier/frp/pkg/util/version.version=$(VERSION)
+endif
+endif
 NOWEB_TAG = $(shell [ ! -d web/frps/dist ] || [ ! -d web/frpc/dist ] && echo ',noweb')
 
 .PHONY: web frps-web frpc-web frps frpc
