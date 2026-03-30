@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
@@ -250,6 +251,8 @@ func TestAPICreateGatewayTunnelCreatesAndSyncs(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "generated-id", tunnel.ID)
 	require.Equal(t, key, tunnel.ClientKey)
+	require.Empty(t, tunnel.SSPassword)
+	require.Empty(t, tunnel.Socks5Pass)
 	require.Equal(t, []string{key}, manager.syncCalls)
 	require.Len(t, manager.refreshCalls, 1)
 	require.Equal(t, []string{"generated-id"}, manager.refreshCalls[0])
@@ -280,9 +283,41 @@ func TestAPIUpdateGatewayTunnelSyncsPreviousAndCurrentClients(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "t-1", tunnel.ID)
 	require.Equal(t, newKey, tunnel.ClientKey)
+	require.Empty(t, tunnel.SSPassword)
+	require.Empty(t, tunnel.Socks5Pass)
 	require.Equal(t, []string{oldKey, newKey}, manager.syncCalls)
 	require.Len(t, manager.refreshCalls, 1)
 	require.Equal(t, []string{"t-1"}, manager.refreshCalls[0])
+}
+
+func TestAPIGatewayTunnelListAndDetailRedactSecrets(t *testing.T) {
+	manager := newStubGatewayTunnelManager()
+	manager.tunnels["t-1"] = gatewaypkg.Tunnel{
+		ID:         "t-1",
+		Name:       "ssh",
+		Protocol:   "tcp",
+		BindAddr:   "0.0.0.0",
+		ListenPort: 6000,
+		ClientKey:  "client-a",
+		TargetType: gatewaypkg.TargetTypeSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		Socks5Pass: "socks-secret",
+	}
+	controller := NewController(&v1.ServerConfig{}, nil, nil, manager, nil)
+
+	listResp, err := controller.APIGatewayTunnelList(newGatewayContext(t, "GET", "/api/gateway-tunnels?refresh=false", nil, nil))
+	require.NoError(t, err)
+	list := listResp.([]gatewaypkg.Tunnel)
+	require.Len(t, list, 1)
+	require.Empty(t, list[0].SSPassword)
+	require.Empty(t, list[0].Socks5Pass)
+
+	detailResp, err := controller.APIGatewayTunnelDetail(newGatewayContext(t, "GET", "/api/gateway-tunnels/t-1?refresh=false", nil, map[string]string{"id": "t-1"}))
+	require.NoError(t, err)
+	detail := detailResp.(gatewaypkg.Tunnel)
+	require.Empty(t, detail.SSPassword)
+	require.Empty(t, detail.Socks5Pass)
 }
 
 func TestAPIDeleteGatewayTunnelSyncsClient(t *testing.T) {
@@ -318,19 +353,41 @@ func TestAPICreateGatewayTunnelSurfacesManagerValidationError(t *testing.T) {
 	require.Equal(t, "listenPort must be between 1 and 65535", httpErr.Error())
 }
 
+func TestAPICreateGatewayTunnelRejectsExplicitExpiresAt(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	key := registerClient(t, reg, "client-a", "run-a", true)
+	manager := newStubGatewayTunnelManager()
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
+
+	body := []byte(`{"name":"ssh","protocol":"tcp","bindAddr":"0.0.0.0","listenPort":6000,"clientKey":"` + key + `","targetHost":"127.0.0.1","targetPort":22,"expiresAt":"2026-04-01T00:00:00Z"}`)
+	_, err := controller.APICreateGatewayTunnel(newGatewayContext(t, "POST", "/api/gateway-tunnels", body, nil))
+	require.Error(t, err)
+
+	httpErr, ok := err.(*httppkg.Error)
+	require.True(t, ok)
+	require.Equal(t, "expiresAt is only supported for import/restore", httpErr.Error())
+}
+
 func TestAPIGatewayTunnelExportYAML(t *testing.T) {
 	manager := newStubGatewayTunnelManager()
 	manager.tunnels["t-1"] = gatewaypkg.Tunnel{
-		ID:         "t-1",
-		Name:       "ssh-main",
-		Remark:     "ops",
-		Protocol:   "tcp",
-		BindAddr:   "0.0.0.0",
-		ListenPort: 6000,
-		ClientKey:  "client-a",
-		TargetHost: "127.0.0.1",
-		TargetPort: 22,
-		Status:     gatewaypkg.StatusOnline,
+		ID:            "t-1",
+		Name:          "ssh-main",
+		Remark:        "ops",
+		Protocol:      "tcp",
+		BindAddr:      "0.0.0.0",
+		ListenPort:    6000,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSocks5Proxy,
+		Socks5Auth:    true,
+		Socks5User:    "demo",
+		Socks5Pass:    "demo-pass",
+		ValidityValue: 1,
+		ValidityUnit:  gatewaypkg.ValidityUnitDay,
+		TargetHost:    "127.0.0.1",
+		TargetPort:    22,
+		Status:        gatewaypkg.StatusOnline,
+		ExpiresAt:     time.Unix(1775000000, 0).UTC(),
 	}
 	controller := NewController(&v1.ServerConfig{}, nil, nil, manager, nil)
 
@@ -350,6 +407,13 @@ func TestAPIGatewayTunnelExportYAML(t *testing.T) {
 	require.Len(t, parsed.Tunnels, 1)
 	require.Equal(t, "ssh-main", parsed.Tunnels[0].Name)
 	require.Equal(t, "client-a", parsed.Tunnels[0].ClientKey)
+	require.Equal(t, gatewaypkg.TargetTypeSocks5Proxy, parsed.Tunnels[0].TargetType)
+	require.True(t, parsed.Tunnels[0].Socks5Auth)
+	require.Equal(t, "demo", parsed.Tunnels[0].Socks5User)
+	require.Equal(t, "demo-pass", parsed.Tunnels[0].Socks5Pass)
+	require.Equal(t, 1, parsed.Tunnels[0].ValidityValue)
+	require.Equal(t, gatewaypkg.ValidityUnitDay, parsed.Tunnels[0].ValidityUnit)
+	require.EqualValues(t, 1775000000, parsed.Tunnels[0].ExpiresAt)
 }
 
 func TestAPIGatewayTunnelImportUpsert(t *testing.T) {
@@ -384,8 +448,12 @@ tunnels:
     bindAddr: 0.0.0.0
     listenPort: 5300
     clientKey: ` + key + `
-    targetHost: 127.0.0.1
-    targetPort: 53
+    targetType: ss_proxy
+    ssMethod: chacha20-ietf-poly1305
+    ssPassword: secret
+    validityValue: 12
+    validityUnit: h
+    expiresAt: 1775001111
 `
 	body, err := json.Marshal(map[string]string{"yaml": rawYAML})
 	require.NoError(t, err)
@@ -404,6 +472,13 @@ tunnels:
 	require.Equal(t, 2222, updated.TargetPort)
 	require.Equal(t, "changed", updated.Remark)
 	require.Equal(t, "127.0.0.1", updated.BindAddr)
+	created := manager.tunnels["generated-id"]
+	require.Equal(t, gatewaypkg.TargetTypeSSProxy, created.TargetType)
+	require.Equal(t, "chacha20-ietf-poly1305", created.SSMethod)
+	require.Equal(t, "secret", created.SSPassword)
+	require.Equal(t, 12, created.ValidityValue)
+	require.Equal(t, gatewaypkg.ValidityUnitHour, created.ValidityUnit)
+	require.Equal(t, int64(1775001111), created.ExpiresAt.Unix())
 	require.Equal(t, []string{key}, manager.syncCalls)
 	require.Len(t, manager.refreshCalls, 1)
 	require.ElementsMatch(t, []string{"existing-id", "generated-id"}, manager.refreshCalls[0])
@@ -491,6 +566,40 @@ tunnels:
 	require.Equal(t, 1, secondResult.Total)
 	require.Equal(t, 0, secondResult.Created)
 	require.Equal(t, 1, secondResult.Updated)
+}
+
+func TestAPIGatewayTunnelImportPreservesExplicitExpiryAcrossRepeatedImport(t *testing.T) {
+	reg := registry.NewClientRegistry()
+	key := registerClient(t, reg, "client-a", "run-a", true)
+	manager := newStubGatewayTunnelManager()
+	controller := NewController(&v1.ServerConfig{}, reg, nil, manager, nil)
+
+	rawYAML := `version: 1
+tunnels:
+  - name: ssh-main
+    protocol: tcp
+    bindAddr: 0.0.0.0
+    listenPort: 6000
+    clientKey: ` + key + `
+    targetType: ss_proxy
+    ssMethod: chacha20-ietf-poly1305
+    ssPassword: secret
+    validityValue: 1
+    validityUnit: d
+    expiresAt: 1775002222
+`
+	body, err := json.Marshal(map[string]string{"yaml": rawYAML})
+	require.NoError(t, err)
+
+	_, err = controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+	_, err = controller.APIGatewayTunnelImport(newGatewayContext(t, "POST", "/api/gateway-tunnels/import", body, nil))
+	require.NoError(t, err)
+
+	require.Len(t, manager.tunnels, 1)
+	for _, tunnel := range manager.tunnels {
+		require.Equal(t, int64(1775002222), tunnel.ExpiresAt.Unix())
+	}
 }
 
 func TestAPIGatewayTunnelImportAllowsUnknownClientKey(t *testing.T) {

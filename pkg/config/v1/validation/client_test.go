@@ -58,6 +58,30 @@ func TestValidateGatewayClientIdentityNoWarningWithClientID(t *testing.T) {
 	require.NoError(t, warning)
 }
 
+func TestValidateGatewayClientIdentityNoWarningWithMixClientIDAlias(t *testing.T) {
+	validator := NewConfigValidator(nil)
+	cfg := &v1.ClientCommonConfig{
+		MixClientID:         "edge-mix-01",
+		AllowGatewayTunnels: ptrBool(true),
+	}
+	require.NoError(t, cfg.Complete())
+
+	warning, err := validator.ValidateClientCommonConfig(cfg)
+	require.NoError(t, err)
+	require.NoError(t, warning)
+	require.Equal(t, "edge-mix-01", cfg.ClientID)
+}
+
+func TestClientIDTakesPrecedenceOverMixClientIDAlias(t *testing.T) {
+	cfg := &v1.ClientCommonConfig{
+		ClientID:          "primary-id",
+		MixClientID:       "mix-id",
+		MixClientIDLegacy: "mix-legacy-id",
+	}
+	require.NoError(t, cfg.Complete())
+	require.Equal(t, "primary-id", cfg.ClientID)
+}
+
 func ptrBool(v bool) *bool {
 	return &v
 }

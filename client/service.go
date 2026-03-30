@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -654,6 +655,12 @@ func (svr *Service) UpdateAllConfigurer(proxyCfgs []v1.ProxyConfigurer, visitorC
 		return svr.ctl.UpdateAllConfigurer(proxyCfgs, visitorCfgs)
 	}
 	return nil
+}
+
+func (svr *Service) currentConfigurers() ([]v1.ProxyConfigurer, []v1.VisitorConfigurer) {
+	svr.cfgMu.RLock()
+	defer svr.cfgMu.RUnlock()
+	return slices.Clone(svr.proxyCfgs), slices.Clone(svr.visitorCfgs)
 }
 
 func (svr *Service) UpdateConfigSource(

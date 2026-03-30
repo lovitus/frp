@@ -70,10 +70,17 @@ class BaseProxy {
   get gatewayTunnelTargetAddr(): string {
     const host = this.annotations.get('frp/gateway-target-host') || ''
     const port = this.annotations.get('frp/gateway-target-port') || ''
-    if (!host || !port) {
-      return ''
+    if (host && port) {
+      return `${host}:${port}`
     }
-    return `${host}:${port}`
+    const targetType = this.annotations.get('frp/gateway-target-type') || ''
+    if (targetType === 'ss_proxy') {
+      return 'embedded ss proxy'
+    }
+    if (targetType === 'socks5_proxy') {
+      return 'embedded socks5 proxy'
+    }
+    return ''
   }
 }
 

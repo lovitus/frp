@@ -366,14 +366,17 @@
 
             <section class="detail-panel">
               <div class="detail-label">Target</div>
-              <code class="detail-code">{{ row.targetHost }}:{{ row.targetPort }}</code>
+              <code class="detail-code">{{ formatTunnelTarget(row) }}</code>
               <div class="detail-meta">
-                Local endpoint on the gateway client
+                {{ formatTunnelTargetMeta(row) }}
               </div>
             </section>
 
             <section class="detail-panel detail-panel-status">
               <div class="detail-label">Status</div>
+              <div class="status-detail">
+                {{ formatTunnelValidity(row) }}
+              </div>
               <div v-if="row.remoteAddr" class="status-detail">
                 remote {{ row.remoteAddr }}
               </div>
@@ -499,7 +502,11 @@
           <el-form-item label="Protocol" prop="protocol">
             <el-select v-model="formState.protocol">
               <el-option label="TCP" value="tcp" />
-              <el-option label="UDP" value="udp" />
+              <el-option
+                label="UDP"
+                value="udp"
+                :disabled="formState.targetType === 'socks5_proxy'"
+              />
             </el-select>
           </el-form-item>
 
@@ -555,17 +562,101 @@
             <el-input v-model="formState.remark" maxlength="256" />
           </el-form-item>
 
-          <el-form-item label="Target Host" prop="targetHost">
+          <el-form-item label="Target Type" prop="targetType">
+            <el-select v-model="formState.targetType">
+              <el-option label="Direct" value="direct" />
+              <el-option label="SS Proxy (Recommended)" value="ss_proxy" />
+              <el-option label="SOCKS5 Proxy (Riskier)" value="socks5_proxy" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="Validity" prop="validityUnit">
+            <div class="validity-row">
+              <el-input-number
+                v-model="formState.validityValue"
+                :min="1"
+                :max="3650"
+                controls-position="right"
+                class="full-width"
+                :disabled="formState.validityUnit === 'permanent'"
+              />
+              <el-select v-model="formState.validityUnit" class="validity-unit-select">
+                <el-option label="Permanent" value="permanent" />
+                <el-option label="Hours" value="h" />
+                <el-option label="Days" value="d" />
+              </el-select>
+            </div>
+          </el-form-item>
+
+          <el-form-item
+            v-if="isDirectTarget"
+            label="Target Host"
+            prop="targetHost"
+          >
             <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
           </el-form-item>
 
-          <el-form-item label="Target Port" prop="targetPort">
+          <el-form-item
+            v-if="isDirectTarget"
+            label="Target Port"
+            prop="targetPort"
+          >
             <el-input-number
               v-model="formState.targetPort"
               :min="1"
               :max="65535"
               controls-position="right"
               class="full-width"
+            />
+          </el-form-item>
+
+          <el-form-item v-if="isSSTarget" label="SS Method" prop="ssMethod">
+            <el-select v-model="formState.ssMethod">
+              <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
+              <el-option label="aes-256-gcm" value="aes-256-gcm" />
+              <el-option label="aes-128-gcm" value="aes-128-gcm" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item v-if="isSSTarget" label="SS Password" prop="ssPassword">
+            <el-input
+              v-model="formState.ssPassword"
+              show-password
+              :placeholder="editingTunnel?.targetType === 'ss_proxy' ? 'Leave blank to keep existing password' : ''"
+            />
+          </el-form-item>
+
+          <el-form-item v-if="isSocks5Target" label="SOCKS5 Auth">
+            <el-switch v-model="formState.socks5Auth" />
+          </el-form-item>
+
+          <el-form-item v-if="isSocks5Target" label="SOCKS5 Notes" class="wide">
+            <div class="target-risk-copy">
+              SOCKS5 is easier to fingerprint and riskier than Shadowsocks. Prefer
+              SS unless you specifically need SOCKS5.
+            </div>
+          </el-form-item>
+
+          <el-form-item
+            v-if="isSocks5Target && formState.socks5Auth"
+            label="SOCKS5 Username"
+            prop="socks5User"
+          >
+            <el-input
+              v-model="formState.socks5User"
+              :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing username' : ''"
+            />
+          </el-form-item>
+
+          <el-form-item
+            v-if="isSocks5Target && formState.socks5Auth"
+            label="SOCKS5 Password"
+            prop="socks5Pass"
+          >
+            <el-input
+              v-model="formState.socks5Pass"
+              show-password
+              :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing password' : ''"
             />
           </el-form-item>
         </div>
@@ -601,7 +692,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import ActionButton from '@shared/components/ActionButton.vue'
@@ -617,7 +708,13 @@ import {
   importGatewayTunnels,
   updateGatewayTunnel,
 } from '../api/gateway'
-import type { GatewayProtocol, GatewayTunnelData } from '../types/gateway'
+import type {
+  GatewayProtocol,
+  GatewayTargetType,
+  GatewayTunnelData,
+  GatewayTunnelPayload,
+  GatewayValidityUnit,
+} from '../types/gateway'
 import type { ClientInfoData } from '../types/client'
 import type { GatewaySystemInfoData } from '../types/client-system'
 import { Client } from '../utils/client'
@@ -658,8 +755,16 @@ const formState = reactive({
   bindAddr: '0.0.0.0',
   listenPort: 0,
   clientKey: '',
+  targetType: 'direct' as GatewayTargetType,
   targetHost: '127.0.0.1',
   targetPort: 0,
+  ssMethod: 'chacha20-ietf-poly1305',
+  ssPassword: '',
+  socks5Auth: false,
+  socks5User: '',
+  socks5Pass: '',
+  validityUnit: 'permanent' as GatewayValidityUnit,
+  validityValue: 1,
 })
 
 const formRules: FormRules<typeof formState> = {
@@ -677,10 +782,128 @@ const formRules: FormRules<typeof formState> = {
     { required: true, message: 'Gateway client is required', trigger: 'change' },
   ],
   targetHost: [
-    { required: true, message: 'Target host is required', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.targetType !== 'direct') {
+          callback()
+          return
+        }
+        if (!String(value || '').trim()) {
+          callback(new Error('Target host is required'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
   ],
   targetPort: [
-    { required: true, message: 'Target port is required', trigger: 'change' },
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.targetType !== 'direct') {
+          callback()
+          return
+        }
+        if (!value || value < 1 || value > 65535) {
+          callback(new Error('Target port must be between 1 and 65535'))
+          return
+        }
+        callback()
+      },
+      trigger: 'change',
+    },
+  ],
+  ssMethod: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.targetType !== 'ss_proxy') {
+          callback()
+          return
+        }
+        if (!String(value || '').trim()) {
+          callback(new Error('SS method is required'))
+          return
+        }
+        callback()
+      },
+      trigger: 'change',
+    },
+  ],
+  ssPassword: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.targetType !== 'ss_proxy') {
+          callback()
+          return
+        }
+        if (!String(value || '').trim() && canReuseExistingSSSecret.value) {
+          callback()
+          return
+        }
+        if (!String(value || '').trim()) {
+          callback(new Error('SS password is required'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+  socks5User: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.targetType !== 'socks5_proxy' || !formState.socks5Auth) {
+          callback()
+          return
+        }
+        if (!String(value || '').trim() && canReuseExistingSocks5Secret.value) {
+          callback()
+          return
+        }
+        if (!String(value || '').trim()) {
+          callback(new Error('SOCKS5 username is required'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+  socks5Pass: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.targetType !== 'socks5_proxy' || !formState.socks5Auth) {
+          callback()
+          return
+        }
+        if (!String(value || '').trim() && canReuseExistingSocks5Secret.value) {
+          callback()
+          return
+        }
+        if (!String(value || '').trim()) {
+          callback(new Error('SOCKS5 password is required'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+  validityValue: [
+    {
+      validator: (_rule, value, callback) => {
+        if (formState.validityUnit === 'permanent') {
+          callback()
+          return
+        }
+        if (!value || value < 1 || value > 3650) {
+          callback(new Error('Validity value must be between 1 and 3650'))
+          return
+        }
+        callback()
+      },
+      trigger: 'change',
+    },
   ],
 }
 
@@ -689,6 +912,7 @@ const statusOptions = [
   { value: 'pending', label: 'Pending' },
   { value: 'client-offline', label: 'Client Offline' },
   { value: 'disabled', label: 'Disabled' },
+  { value: 'expired', label: 'Expired' },
   { value: 'register-failed', label: 'Register Failed' },
   { value: 'target-invalid', label: 'Target Invalid' },
   { value: 'target-unreachable', label: 'Target Unreachable' },
@@ -721,6 +945,20 @@ const buildClientMetaLine = (client: Client) => {
   return parts.join(' • ')
 }
 
+const isDirectTarget = computed(() => formState.targetType === 'direct')
+const isSSTarget = computed(() => formState.targetType === 'ss_proxy')
+const isSocks5Target = computed(() => formState.targetType === 'socks5_proxy')
+const canReuseExistingSSSecret = computed(
+  () => editingTunnel.value?.targetType === 'ss_proxy' && formState.targetType === 'ss_proxy',
+)
+const canReuseExistingSocks5Secret = computed(
+  () =>
+    editingTunnel.value?.targetType === 'socks5_proxy' &&
+    formState.targetType === 'socks5_proxy' &&
+    Boolean(editingTunnel.value?.socks5Auth) &&
+    formState.socks5Auth,
+)
+
 const filteredTunnels = computed(() => {
   const query = searchText.value.trim().toLowerCase()
 
@@ -736,6 +974,8 @@ const filteredTunnels = computed(() => {
         getClientLabel(tunnel.clientKey),
         getClientSubLabel(tunnel.clientKey),
         getClientMetaLine(tunnel.clientKey),
+        formatTunnelTarget(tunnel),
+        formatTunnelValidity(tunnel),
         tunnel.clientKey,
       ]
         .filter(Boolean)
@@ -747,8 +987,10 @@ const filteredTunnels = computed(() => {
         tunnel.protocol,
         tunnel.bindAddr,
         String(tunnel.listenPort),
+        tunnel.targetType || 'direct',
         tunnel.targetHost,
         String(tunnel.targetPort),
+        tunnel.ssMethod || '',
         tunnel.status,
         tunnel.message || '',
         clientLabel,
@@ -809,6 +1051,8 @@ const getStatusMeta = (status: string) => {
       return { label: 'Client Offline', type: 'info' as const }
     case 'disabled':
       return { label: 'Disabled', type: 'info' as const }
+    case 'expired':
+      return { label: 'Expired', type: 'warning' as const }
     case 'register-failed':
       return { label: 'Register Failed', type: 'danger' as const }
     case 'target-invalid':
@@ -829,6 +1073,43 @@ const formatUpdatedAt = (value: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return formatDistanceToNow(date)
+}
+
+const formatTunnelTarget = (tunnel: GatewayTunnelData) => {
+  switch (tunnel.targetType || 'direct') {
+    case 'ss_proxy':
+      return `embedded ss://${tunnel.ssMethod || '-'}`
+    case 'socks5_proxy':
+      return tunnel.socks5Auth ? 'embedded socks5://auth' : 'embedded socks5://no-auth'
+    default:
+      return `${tunnel.targetHost}:${tunnel.targetPort}`
+  }
+}
+
+const formatTunnelTargetMeta = (tunnel: GatewayTunnelData) => {
+  switch (tunnel.targetType || 'direct') {
+    case 'ss_proxy':
+      return tunnel.protocol === 'udp'
+        ? 'Shadowsocks server on gateway client (TCP/UDP capable)'
+        : 'Shadowsocks server on gateway client'
+    case 'socks5_proxy':
+      return 'SOCKS5 server on gateway client'
+    default:
+      return 'Local endpoint on the gateway client'
+  }
+}
+
+const formatTunnelValidity = (tunnel: GatewayTunnelData) => {
+  const unit = tunnel.validityUnit || 'permanent'
+  if (unit === 'permanent') {
+    return 'Permanent'
+  }
+  const value = tunnel.validityValue || 0
+  const expiresAt = tunnel.expiresAt ? new Date(tunnel.expiresAt) : null
+  if (expiresAt && !Number.isNaN(expiresAt.getTime())) {
+    return `${value}${unit} (valid until ${snapshotTimeFormatter.format(expiresAt)})`
+  }
+  return `${value}${unit}`
 }
 
 const formatBytes = (value?: number) => {
@@ -917,8 +1198,16 @@ const resetForm = () => {
   formState.bindAddr = '0.0.0.0'
   formState.listenPort = 0
   formState.clientKey = eligibleClients.value[0]?.key || ''
+  formState.targetType = 'direct'
   formState.targetHost = '127.0.0.1'
   formState.targetPort = 0
+  formState.ssMethod = 'chacha20-ietf-poly1305'
+  formState.ssPassword = ''
+  formState.socks5Auth = false
+  formState.socks5User = ''
+  formState.socks5Pass = ''
+  formState.validityUnit = 'permanent'
+  formState.validityValue = 1
 }
 
 const populateForm = (tunnel: GatewayTunnelData) => {
@@ -928,8 +1217,16 @@ const populateForm = (tunnel: GatewayTunnelData) => {
   formState.bindAddr = tunnel.bindAddr
   formState.listenPort = tunnel.listenPort
   formState.clientKey = tunnel.clientKey
+  formState.targetType = tunnel.targetType || 'direct'
   formState.targetHost = tunnel.targetHost
   formState.targetPort = tunnel.targetPort
+  formState.ssMethod = tunnel.ssMethod || 'chacha20-ietf-poly1305'
+  formState.ssPassword = tunnel.ssPassword || ''
+  formState.socks5Auth = Boolean(tunnel.socks5Auth)
+  formState.socks5User = tunnel.socks5User || ''
+  formState.socks5Pass = tunnel.socks5Pass || ''
+  formState.validityUnit = tunnel.validityUnit || 'permanent'
+  formState.validityValue = tunnel.validityValue || 1
 }
 
 const refreshGatewayClientSnapshot = (list: Client[]) => {
@@ -940,6 +1237,15 @@ const refreshGatewayClientSnapshot = (list: Client[]) => {
   gatewayOnlineCount.value = gateways.filter((client) => client.online).length
   gatewaySnapshotClients.value = gateways
 }
+
+watch(
+  () => formState.targetType,
+  (value) => {
+    if (value === 'socks5_proxy' && formState.protocol === 'udp') {
+      formState.protocol = 'tcp'
+    }
+  },
+)
 
 const fetchClients = async (refreshSnapshot = false) => {
   const payload = await getClients()
@@ -1116,15 +1422,47 @@ const submitForm = async () => {
 
   saving.value = true
   try {
-    const payload = {
+    const payload: GatewayTunnelPayload = {
       name: formState.name.trim(),
       remark: formState.remark.trim(),
       protocol: formState.protocol,
       bindAddr: formState.bindAddr.trim(),
       listenPort: formState.listenPort,
       clientKey: formState.clientKey,
+      targetType: formState.targetType,
       targetHost: formState.targetHost.trim(),
       targetPort: formState.targetPort,
+      ssMethod: formState.ssMethod.trim(),
+      ssPassword: formState.ssPassword || undefined,
+      socks5Auth: formState.socks5Auth,
+      socks5User: formState.socks5User.trim() || undefined,
+      socks5Pass: formState.socks5Pass || undefined,
+      validityUnit: formState.validityUnit,
+      validityValue:
+        formState.validityUnit === 'permanent' ? 0 : formState.validityValue,
+    }
+
+    if (editingTunnel.value) {
+      if (
+        editingTunnel.value.targetType === 'ss_proxy' &&
+        formState.targetType === 'ss_proxy' &&
+        !formState.ssPassword.trim()
+      ) {
+        payload.ssPassword = undefined
+      }
+      if (
+        editingTunnel.value.targetType === 'socks5_proxy' &&
+        formState.targetType === 'socks5_proxy' &&
+        editingTunnel.value.socks5Auth &&
+        formState.socks5Auth
+      ) {
+        if (!formState.socks5User.trim()) {
+          payload.socks5User = undefined
+        }
+        if (!formState.socks5Pass.trim()) {
+          payload.socks5Pass = undefined
+        }
+      }
     }
 
     if (editingTunnel.value) {
@@ -1402,6 +1740,23 @@ onMounted(() => {
   font-size: 11px;
   color: var(--el-text-color-secondary);
   word-break: break-word;
+}
+
+.validity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 10px;
+  width: 100%;
+}
+
+.validity-unit-select {
+  width: 100%;
+}
+
+.target-risk-copy {
+  font-size: 12px;
+  color: var(--el-color-danger);
+  line-height: 1.5;
 }
 
 .system-info-dialog {

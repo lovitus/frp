@@ -380,6 +380,10 @@ func (svr *Service) Run(ctx context.Context) {
 	svr.ctx = ctx
 	svr.cancel = cancel
 
+	if svr.gatewayTunnelManager != nil {
+		go svr.gatewayTunnelExpiryWorker()
+	}
+
 	// run dashboard web server.
 	if svr.webServer != nil {
 		go func() {
@@ -460,6 +464,58 @@ func (svr *Service) Close() error {
 		svr.cancel()
 	}
 	return nil
+}
+
+func (svr *Service) gatewayTunnelExpiryWorker() {
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	defer timer.Stop()
+
+	for {
+		now := time.Now()
+		clientKeys := svr.gatewayTunnelManager.ExpireDue(now)
+		for _, clientKey := range clientKeys {
+			_ = svr.gatewayTunnelManager.SyncClient(clientKey)
+		}
+
+		nextExpiry, ok := svr.gatewayTunnelManager.NextExpiry(now)
+		var timerCh <-chan time.Time
+		if ok {
+			wait := time.Until(nextExpiry)
+			if wait < 0 {
+				wait = 0
+			}
+			timer.Reset(wait)
+			timerCh = timer.C
+		}
+
+		select {
+		case <-svr.ctx.Done():
+			return
+		case <-svr.gatewayTunnelManager.ExpiryChanged():
+			stopTimer(timer)
+			continue
+		case <-timerCh:
+		}
+	}
+}
+
+func stopTimer(timer *time.Timer) {
+	if timer == nil {
+		return
+	}
+	if timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C:
+	default:
+	}
 }
 
 func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, internal bool) {

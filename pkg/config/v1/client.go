@@ -39,6 +39,10 @@ type ClientCommonConfig struct {
 	User string `json:"user,omitempty"`
 	// ClientID uniquely identifies this frpc instance.
 	ClientID string `json:"clientID,omitempty"`
+	// MixClientID keeps backward compatibility with the earlier mix-scoped naming for gateway identity.
+	MixClientID string `json:"mixClientID,omitempty"`
+	// MixClientIDLegacy accepts snake_case config for the legacy name.
+	MixClientIDLegacy string `json:"mix_client_id,omitempty"`
 
 	// ServerAddr specifies the address of the server to connect to. By
 	// default, this value is "0.0.0.0".
@@ -112,6 +116,14 @@ func (c *ClientCommonConfig) Complete() error {
 	}
 	if c.MixFallbackHosts == "" {
 		c.MixFallbackHosts = c.MixFallbackHostsLegacy
+	}
+	if c.ClientID == "" {
+		switch {
+		case c.MixClientID != "":
+			c.ClientID = c.MixClientID
+		case c.MixClientIDLegacy != "":
+			c.ClientID = c.MixClientIDLegacy
+		}
 	}
 	if c.AllowGatewayTunnels == nil {
 		switch {

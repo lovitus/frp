@@ -14,12 +14,14 @@ import (
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/msg"
+	sscore "github.com/shadowsocks/go-shadowsocks2/core"
 )
 
 type gatewayTunnelRuntime struct {
 	config        msg.GatewayTunnelConfig
 	proxyName     string
 	validationErr string
+	embedded      gatewayEmbeddedService
 }
 
 type GatewayTunnelManager struct {
@@ -32,6 +34,12 @@ type GatewayTunnelManager struct {
 	lastApplyErr string
 }
 
+type gatewayProxyBuildInput struct {
+	annotationCfg msg.GatewayTunnelConfig
+	localHost     string
+	localPort     int
+}
+
 func NewGatewayTunnelManager(service *Service, runtimeSource *source.ConfigSource, enabled bool) *GatewayTunnelManager {
 	return &GatewayTunnelManager{
 		service:       service,
@@ -42,7 +50,24 @@ func NewGatewayTunnelManager(service *Service, runtimeSource *source.ConfigSourc
 }
 
 func (m *GatewayTunnelManager) ApplyGatewayTunnels(tunnels []msg.GatewayTunnelConfig) error {
+	if m.runtimeSource == nil {
+		return fmt.Errorf("runtime source is unavailable")
+	}
+
+	m.mu.RLock()
+	previous := make(map[string]*gatewayTunnelRuntime, len(m.tunnels))
+	for id, tunnel := range m.tunnels {
+		previous[id] = tunnel
+	}
+	m.mu.RUnlock()
+	prevLiveProxyCfgs, prevLiveVisitorCfgs := m.service.currentConfigurers()
+	prevProxyCfgs, prevVisitors, err := m.runtimeSource.Load()
+	if err != nil {
+		return err
+	}
+
 	next := make(map[string]*gatewayTunnelRuntime, len(tunnels))
+	reusedEmbedded := make(map[gatewayEmbeddedService]struct{})
 	proxyCfgs := make([]v1.ProxyConfigurer, 0, len(tunnels))
 
 	for _, raw := range tunnels {
@@ -59,8 +84,45 @@ func (m *GatewayTunnelManager) ApplyGatewayTunnels(tunnels []msg.GatewayTunnelCo
 			next[cfg.ID] = runtime
 			continue
 		}
-
-		proxyCfg, err := buildGatewayProxyConfigurer(cfg)
+		if cfg.TargetType != gatewaypkg.TargetTypeDirect {
+			createdEmbedded := false
+			if prev, ok := previous[cfg.ID]; ok && prev.embedded != nil && canReuseGatewayEmbeddedService(prev.config, cfg) {
+				runtime.embedded = prev.embedded
+				reusedEmbedded[runtime.embedded] = struct{}{}
+			} else {
+				svc, err := newGatewayEmbeddedService(cfg)
+				if err != nil {
+					runtime.validationErr = err.Error()
+					next[cfg.ID] = runtime
+					continue
+				}
+				runtime.embedded = svc
+				createdEmbedded = true
+			}
+			host, port := runtime.embedded.Endpoint()
+			proxyCfg, err := buildGatewayProxyConfigurer(gatewayProxyBuildInput{
+				annotationCfg: cfg,
+				localHost:     host,
+				localPort:     port,
+			})
+			if err != nil {
+				runtime.validationErr = err.Error()
+				if createdEmbedded && runtime.embedded != nil {
+					_ = runtime.embedded.Close()
+					runtime.embedded = nil
+				}
+				next[cfg.ID] = runtime
+				continue
+			}
+			next[cfg.ID] = runtime
+			proxyCfgs = append(proxyCfgs, proxyCfg)
+			continue
+		}
+		proxyCfg, err := buildGatewayProxyConfigurer(gatewayProxyBuildInput{
+			annotationCfg: cfg,
+			localHost:     cfg.TargetHost,
+			localPort:     cfg.TargetPort,
+		})
 		if err != nil {
 			runtime.validationErr = err.Error()
 			next[cfg.ID] = runtime
@@ -70,24 +132,27 @@ func (m *GatewayTunnelManager) ApplyGatewayTunnels(tunnels []msg.GatewayTunnelCo
 		proxyCfgs = append(proxyCfgs, proxyCfg)
 	}
 
-	if m.runtimeSource == nil {
-		return fmt.Errorf("runtime source is unavailable")
-	}
 	if err := m.runtimeSource.ReplaceAll(proxyCfgs, nil); err != nil {
+		closeGatewayTunnelRuntimes(next, reusedEmbedded)
 		return err
 	}
 
-	m.mu.Lock()
-	m.tunnels = next
-	m.lastApplyErr = ""
-	m.mu.Unlock()
-
 	if err := m.service.reloadConfigFromSources(); err != nil {
+		_ = m.runtimeSource.ReplaceAll(prevProxyCfgs, prevVisitors)
+		_ = m.service.UpdateAllConfigurer(prevLiveProxyCfgs, prevLiveVisitorCfgs)
+		closeGatewayTunnelRuntimes(next, reusedEmbedded)
 		m.mu.Lock()
 		m.lastApplyErr = err.Error()
 		m.mu.Unlock()
 		return err
 	}
+
+	m.mu.Lock()
+	old := m.tunnels
+	m.tunnels = next
+	m.lastApplyErr = ""
+	m.mu.Unlock()
+	closeObsoleteGatewayTunnelRuntimes(old, next)
 	return nil
 }
 
@@ -159,16 +224,18 @@ func (m *GatewayTunnelManager) fillGatewayTunnelRuntimeStatus(
 	status.RemoteAddr = proxyStatus.RemoteAddr
 	switch proxyStatus.Phase {
 	case "running":
-		if err := validateGatewayTunnelTargetReachability(tunnel.config); err != nil {
-			var targetErr *gatewayTargetError
-			if errors.As(err, &targetErr) {
-				status.Status = targetErr.Status
-				status.Message = targetErr.Error()
+		if tunnel.config.TargetType == gatewaypkg.TargetTypeDirect {
+			if err := validateGatewayTunnelTargetReachability(tunnel.config); err != nil {
+				var targetErr *gatewayTargetError
+				if errors.As(err, &targetErr) {
+					status.Status = targetErr.Status
+					status.Message = targetErr.Error()
+					return status
+				}
+				status.Status = gatewaypkg.StatusTargetUnreachable
+				status.Message = err.Error()
 				return status
 			}
-			status.Status = gatewaypkg.StatusTargetUnreachable
-			status.Message = err.Error()
-			return status
 		}
 		status.Status = gatewaypkg.StatusOnline
 	case "start error", "check failed":
@@ -188,7 +255,17 @@ func (m *GatewayTunnelManager) fillGatewayTunnelRuntimeStatus(
 	return status
 }
 
-func buildGatewayProxyConfigurer(cfg msg.GatewayTunnelConfig) (v1.ProxyConfigurer, error) {
+func buildGatewayProxyConfigurer(input gatewayProxyBuildInput) (v1.ProxyConfigurer, error) {
+	cfg := input.annotationCfg
+	if cfg.TargetType == "" {
+		cfg.TargetType = gatewaypkg.TargetTypeDirect
+	}
+	if input.localHost == "" {
+		input.localHost = cfg.TargetHost
+	}
+	if input.localPort == 0 {
+		input.localPort = cfg.TargetPort
+	}
 	base := v1.ProxyBaseConfig{
 		Name: gatewaypkg.ProxyName(cfg.ID),
 		Type: cfg.Protocol,
@@ -197,13 +274,14 @@ func buildGatewayProxyConfigurer(cfg msg.GatewayTunnelConfig) (v1.ProxyConfigure
 			gatewaypkg.AnnotationTunnelIDKey:     cfg.ID,
 			gatewaypkg.AnnotationTunnelNameKey:   cfg.Name,
 			gatewaypkg.AnnotationTunnelRemarkKey: cfg.Remark,
+			gatewaypkg.AnnotationTargetTypeKey:   cfg.TargetType,
 			gatewaypkg.AnnotationTargetHostKey:   cfg.TargetHost,
 			gatewaypkg.AnnotationTargetPortKey:   fmt.Sprintf("%d", cfg.TargetPort),
 			gatewaypkg.AnnotationBindAddrKey:     cfg.BindAddr,
 		},
 		ProxyBackend: v1.ProxyBackend{
-			LocalIP:   cfg.TargetHost,
-			LocalPort: cfg.TargetPort,
+			LocalIP:   input.localHost,
+			LocalPort: input.localPort,
 		},
 	}
 
@@ -239,10 +317,12 @@ func normalizeGatewayTunnelConfig(cfg msg.GatewayTunnelConfig) (msg.GatewayTunne
 	cfg.Remark = strings.TrimSpace(cfg.Remark)
 	cfg.Protocol = strings.ToLower(strings.TrimSpace(cfg.Protocol))
 	cfg.BindAddr = strings.TrimSpace(cfg.BindAddr)
+	cfg.TargetType = strings.ToLower(strings.TrimSpace(cfg.TargetType))
 	cfg.TargetHost = strings.TrimSpace(cfg.TargetHost)
-	if cfg.TargetHost == "" {
-		cfg.TargetHost = "127.0.0.1"
-	}
+	cfg.SSMethod = strings.TrimSpace(cfg.SSMethod)
+	cfg.SSPassword = strings.TrimSpace(cfg.SSPassword)
+	cfg.Socks5User = strings.TrimSpace(cfg.Socks5User)
+	cfg.Socks5Pass = strings.TrimSpace(cfg.Socks5Pass)
 	if cfg.ID == "" {
 		return cfg, fmt.Errorf("gateway tunnel id is required")
 	}
@@ -252,16 +332,75 @@ func normalizeGatewayTunnelConfig(cfg msg.GatewayTunnelConfig) (msg.GatewayTunne
 	if cfg.Protocol != "tcp" && cfg.Protocol != "udp" {
 		return cfg, fmt.Errorf("unsupported gateway tunnel protocol %q", cfg.Protocol)
 	}
+	if cfg.TargetType == "" {
+		cfg.TargetType = gatewaypkg.TargetTypeDirect
+	}
 	if cfg.ListenPort <= 0 || cfg.ListenPort > 65535 {
 		return cfg, fmt.Errorf("listenPort must be between 1 and 65535")
 	}
-	if cfg.TargetPort <= 0 || cfg.TargetPort > 65535 {
-		return cfg, fmt.Errorf("targetPort must be between 1 and 65535")
-	}
-	if err := validateGatewayTunnelTargetHost(cfg.TargetHost); err != nil {
-		return cfg, err
+	switch cfg.TargetType {
+	case gatewaypkg.TargetTypeDirect:
+		cfg.SSMethod = ""
+		cfg.SSPassword = ""
+		cfg.Socks5Auth = false
+		cfg.Socks5User = ""
+		cfg.Socks5Pass = ""
+		if cfg.TargetHost == "" {
+			cfg.TargetHost = "127.0.0.1"
+		}
+		if cfg.TargetPort <= 0 || cfg.TargetPort > 65535 {
+			return cfg, fmt.Errorf("targetPort must be between 1 and 65535")
+		}
+		if err := validateGatewayTunnelTargetHost(cfg.TargetHost); err != nil {
+			return cfg, err
+		}
+	case gatewaypkg.TargetTypeSSProxy:
+		cfg.TargetHost = ""
+		cfg.TargetPort = 0
+		cfg.Socks5Auth = false
+		cfg.Socks5User = ""
+		cfg.Socks5Pass = ""
+		if cfg.SSMethod == "" {
+			return cfg, fmt.Errorf("ssMethod is required for ss_proxy")
+		}
+		if cfg.SSPassword == "" {
+			return cfg, fmt.Errorf("ssPassword is required for ss_proxy")
+		}
+		if err := validateGatewaySSMethod(cfg.Protocol, cfg.SSMethod, cfg.SSPassword); err != nil {
+			return cfg, err
+		}
+	case gatewaypkg.TargetTypeSocks5Proxy:
+		cfg.TargetHost = ""
+		cfg.TargetPort = 0
+		cfg.SSMethod = ""
+		cfg.SSPassword = ""
+		if cfg.Protocol != "tcp" {
+			return cfg, fmt.Errorf("socks5_proxy currently supports tcp only")
+		}
+		if !cfg.Socks5Auth {
+			cfg.Socks5User = ""
+			cfg.Socks5Pass = ""
+		}
+		if cfg.Socks5Auth && (cfg.Socks5User == "" || cfg.Socks5Pass == "") {
+			return cfg, fmt.Errorf("socks5 username and password are required when auth is enabled")
+		}
+	default:
+		return cfg, fmt.Errorf("unsupported targetType %q", cfg.TargetType)
 	}
 	return cfg, nil
+}
+
+func validateGatewaySSMethod(protocol, method, password string) error {
+	ciph, err := sscore.PickCipher(method, nil, password)
+	if err != nil {
+		return fmt.Errorf("invalid ssMethod %q: %w", method, err)
+	}
+	if protocol == "udp" {
+		if _, ok := ciph.(sscore.PacketConnCipher); !ok {
+			return fmt.Errorf("ssMethod %q does not support udp", method)
+		}
+	}
+	return nil
 }
 
 type gatewayTargetError struct {
@@ -308,4 +447,27 @@ func validateGatewayTunnelTargetHost(host string) error {
 		return fmt.Errorf("targetHost contains invalid whitespace")
 	}
 	return nil
+}
+
+func closeGatewayTunnelRuntimes(items map[string]*gatewayTunnelRuntime, keep map[gatewayEmbeddedService]struct{}) {
+	for _, item := range items {
+		if item != nil && item.embedded != nil {
+			if _, ok := keep[item.embedded]; ok {
+				continue
+			}
+			_ = item.embedded.Close()
+		}
+	}
+}
+
+func closeObsoleteGatewayTunnelRuntimes(oldItems, newItems map[string]*gatewayTunnelRuntime) {
+	for id, item := range oldItems {
+		if item == nil || item.embedded == nil {
+			continue
+		}
+		if next, ok := newItems[id]; ok && next.embedded == item.embedded {
+			continue
+		}
+		_ = item.embedded.Close()
+	}
 }

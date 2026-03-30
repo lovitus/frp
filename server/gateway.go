@@ -13,12 +13,14 @@ import (
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/util/util"
 	"github.com/fatedier/frp/server/registry"
+	sscore "github.com/shadowsocks/go-shadowsocks2/core"
 )
 
 const (
 	gatewayTunnelNameMaxLen   = 64
 	gatewayTunnelRemarkMaxLen = 256
 	gatewayStatusTimeout      = 2 * time.Second
+	gatewayValidityMaxValue   = 3650
 )
 
 type GatewayTunnel = gatewaypkg.Tunnel
@@ -34,6 +36,8 @@ type GatewayTunnelManager struct {
 	tunnels map[string]*GatewayTunnel
 	waiters map[string]*gatewayStatusWaiter
 
+	expiryChangedCh chan struct{}
+
 	lookupClient func(string) (registry.ClientInfo, bool)
 	sendMessage  func(string, msg.Message) error
 }
@@ -43,10 +47,11 @@ func NewGatewayTunnelManager(
 	sendMessage func(string, msg.Message) error,
 ) *GatewayTunnelManager {
 	return &GatewayTunnelManager{
-		tunnels:      make(map[string]*GatewayTunnel),
-		waiters:      make(map[string]*gatewayStatusWaiter),
-		lookupClient: lookupClient,
-		sendMessage:  sendMessage,
+		tunnels:         make(map[string]*GatewayTunnel),
+		waiters:         make(map[string]*gatewayStatusWaiter),
+		lookupClient:    lookupClient,
+		sendMessage:     sendMessage,
+		expiryChangedCh: make(chan struct{}, 1),
 	}
 }
 
@@ -56,7 +61,7 @@ func (m *GatewayTunnelManager) List() []GatewayTunnel {
 
 	items := make([]GatewayTunnel, 0, len(m.tunnels))
 	for _, tunnel := range m.tunnels {
-		items = append(items, cloneGatewayTunnel(tunnel))
+		items = append(items, applyExpiredState(cloneGatewayTunnel(tunnel)))
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].ClientKey != items[j].ClientKey {
@@ -75,11 +80,11 @@ func (m *GatewayTunnelManager) Get(id string) (GatewayTunnel, bool) {
 	if !ok {
 		return GatewayTunnel{}, false
 	}
-	return cloneGatewayTunnel(tunnel), true
+	return applyExpiredState(cloneGatewayTunnel(tunnel)), true
 }
 
 func (m *GatewayTunnelManager) Create(tunnel GatewayTunnel) (GatewayTunnel, error) {
-	normalized, err := normalizeGatewayTunnel(tunnel, true)
+	normalized, err := normalizeGatewayTunnel(tunnel, true, nil)
 	if err != nil {
 		return GatewayTunnel{}, err
 	}
@@ -96,21 +101,22 @@ func (m *GatewayTunnelManager) Create(tunnel GatewayTunnel) (GatewayTunnel, erro
 	normalized.Status = gatewaypkg.StatusPending
 	normalized.UpdatedAt = now
 	m.tunnels[normalized.ID] = &normalized
+	m.notifyExpiryChanged()
 	return cloneGatewayTunnel(&normalized), nil
 }
 
 func (m *GatewayTunnelManager) Update(id string, tunnel GatewayTunnel) (GatewayTunnel, error) {
-	normalized, err := normalizeGatewayTunnel(tunnel, false)
-	if err != nil {
-		return GatewayTunnel{}, err
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	current, ok := m.tunnels[id]
 	if !ok {
 		return GatewayTunnel{}, fmt.Errorf("gateway tunnel %q not found", id)
+	}
+	tunnel.ID = id
+	normalized, err := normalizeGatewayTunnel(tunnel, false, current)
+	if err != nil {
+		return GatewayTunnel{}, err
 	}
 	for existingID, existing := range m.tunnels {
 		if existingID == id {
@@ -129,10 +135,20 @@ func (m *GatewayTunnelManager) Update(id string, tunnel GatewayTunnel) (GatewayT
 	current.ClientKey = normalized.ClientKey
 	current.TargetHost = normalized.TargetHost
 	current.TargetPort = normalized.TargetPort
+	current.TargetType = normalized.TargetType
+	current.SSMethod = normalized.SSMethod
+	current.SSPassword = normalized.SSPassword
+	current.Socks5Auth = normalized.Socks5Auth
+	current.Socks5User = normalized.Socks5User
+	current.Socks5Pass = normalized.Socks5Pass
+	current.ValidityValue = normalized.ValidityValue
+	current.ValidityUnit = normalized.ValidityUnit
+	current.ExpiresAt = normalized.ExpiresAt
 	current.Status = gatewaypkg.StatusPending
 	current.Message = ""
 	current.RemoteAddr = ""
 	current.UpdatedAt = time.Now()
+	m.notifyExpiryChanged()
 	return cloneGatewayTunnel(current), nil
 }
 
@@ -144,6 +160,7 @@ func (m *GatewayTunnelManager) Delete(id string) error {
 		return fmt.Errorf("gateway tunnel %q not found", id)
 	}
 	delete(m.tunnels, id)
+	m.notifyExpiryChanged()
 	return nil
 }
 
@@ -154,6 +171,34 @@ func (m *GatewayTunnelManager) SyncClient(clientKey string) error {
 	return m.sendMessage(clientKey, &msg.GatewayTunnelsSync{
 		Tunnels: m.listWireConfigsForClient(clientKey),
 	})
+}
+
+func (m *GatewayTunnelManager) ExpireDue(now time.Time) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	affected := map[string]struct{}{}
+	for _, tunnel := range m.tunnels {
+		if !isTunnelExpired(tunnel, now) {
+			continue
+		}
+		if tunnel.Status != gatewaypkg.StatusExpired || tunnel.Message == "" {
+			tunnel.Status = gatewaypkg.StatusExpired
+			tunnel.Message = buildGatewayValidityStatus(tunnel)
+			tunnel.RemoteAddr = ""
+			tunnel.UpdatedAt = now
+			affected[tunnel.ClientKey] = struct{}{}
+		}
+	}
+	if len(affected) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(affected))
+	for key := range affected {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (m *GatewayTunnelManager) RefreshStatus(ctx context.Context, tunnelIDs []string) {
@@ -173,12 +218,19 @@ func (m *GatewayTunnelManager) RefreshStatus(ctx context.Context, tunnelIDs []st
 			m.setClientStatus(clientKey, ids, gatewaypkg.StatusDisabled, "client does not allow gateway tunnels")
 			continue
 		}
+		activeIDs, expiredChanged := m.markExpiredAndCollectActiveIDs(clientKey, ids)
+		if expiredChanged {
+			_ = m.SyncClient(clientKey)
+		}
+		if len(activeIDs) == 0 {
+			continue
+		}
 
 		wg.Add(1)
 		go func(clientKey string, ids []string) {
 			defer wg.Done()
 			m.requestClientStatus(ctx, clientKey, ids)
-		}(clientKey, ids)
+		}(clientKey, activeIDs)
 	}
 	wg.Wait()
 }
@@ -187,6 +239,29 @@ func (m *GatewayTunnelManager) HandleClientConnected(clientKey string) {
 	if err := m.SyncClient(clientKey); err != nil {
 		m.setClientStatus(clientKey, nil, gatewaypkg.StatusPending, err.Error())
 	}
+}
+
+func (m *GatewayTunnelManager) NextExpiry(now time.Time) (time.Time, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var next time.Time
+	for _, tunnel := range m.tunnels {
+		if tunnel.ExpiresAt.IsZero() || !tunnel.ExpiresAt.After(now) {
+			continue
+		}
+		if next.IsZero() || tunnel.ExpiresAt.Before(next) {
+			next = tunnel.ExpiresAt
+		}
+	}
+	if next.IsZero() {
+		return time.Time{}, false
+	}
+	return next, true
+}
+
+func (m *GatewayTunnelManager) ExpiryChanged() <-chan struct{} {
+	return m.expiryChangedCh
 }
 
 func (m *GatewayTunnelManager) HandleStatusResponse(clientKey string, resp *msg.GatewayTunnelStatusResponse) {
@@ -296,6 +371,9 @@ func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.
 		if tunnel.ClientKey != clientKey {
 			continue
 		}
+		if isTunnelExpired(tunnel, time.Now()) {
+			continue
+		}
 		items = append(items, msg.GatewayTunnelConfig{
 			ID:         tunnel.ID,
 			Name:       tunnel.Name,
@@ -303,8 +381,15 @@ func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.
 			Protocol:   tunnel.Protocol,
 			BindAddr:   tunnel.BindAddr,
 			ListenPort: tunnel.ListenPort,
+			TargetType: tunnel.TargetType,
 			TargetHost: tunnel.TargetHost,
 			TargetPort: tunnel.TargetPort,
+			SSMethod:   tunnel.SSMethod,
+			SSPassword: tunnel.SSPassword,
+			Socks5Auth: tunnel.Socks5Auth,
+			Socks5User: tunnel.Socks5User,
+			Socks5Pass: tunnel.Socks5Pass,
+			ExpiresAt:  toUnixTime(tunnel.ExpiresAt),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -337,17 +422,62 @@ func (m *GatewayTunnelManager) setClientStatus(clientKey string, ids []string, s
 	}
 }
 
-func normalizeGatewayTunnel(tunnel GatewayTunnel, isCreate bool) (GatewayTunnel, error) {
+func (m *GatewayTunnelManager) markExpiredAndCollectActiveIDs(clientKey string, ids []string) ([]string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	allowed := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		allowed[id] = struct{}{}
+	}
+	activeIDs := make([]string, 0)
+	expiredChanged := false
+	for _, tunnel := range m.tunnels {
+		if tunnel.ClientKey != clientKey {
+			continue
+		}
+		if len(allowed) > 0 {
+			if _, ok := allowed[tunnel.ID]; !ok {
+				continue
+			}
+		}
+		if !isTunnelExpired(tunnel, now) {
+			activeIDs = append(activeIDs, tunnel.ID)
+			continue
+		}
+		if tunnel.Status != gatewaypkg.StatusExpired || tunnel.Message == "" {
+			tunnel.Status = gatewaypkg.StatusExpired
+			tunnel.Message = buildGatewayValidityStatus(tunnel)
+			tunnel.RemoteAddr = ""
+			tunnel.UpdatedAt = now
+			expiredChanged = true
+		}
+	}
+	return activeIDs, expiredChanged
+}
+
+func (m *GatewayTunnelManager) notifyExpiryChanged() {
+	select {
+	case m.expiryChangedCh <- struct{}{}:
+	default:
+	}
+}
+
+func normalizeGatewayTunnel(tunnel GatewayTunnel, isCreate bool, current *GatewayTunnel) (GatewayTunnel, error) {
 	tunnel.ID = strings.TrimSpace(tunnel.ID)
 	tunnel.Name = strings.TrimSpace(tunnel.Name)
 	tunnel.Remark = strings.TrimSpace(tunnel.Remark)
 	tunnel.Protocol = strings.ToLower(strings.TrimSpace(tunnel.Protocol))
 	tunnel.BindAddr = strings.TrimSpace(tunnel.BindAddr)
 	tunnel.ClientKey = strings.TrimSpace(tunnel.ClientKey)
+	tunnel.TargetType = strings.ToLower(strings.TrimSpace(tunnel.TargetType))
 	tunnel.TargetHost = strings.TrimSpace(tunnel.TargetHost)
-	if tunnel.TargetHost == "" {
-		tunnel.TargetHost = "127.0.0.1"
-	}
+	tunnel.SSMethod = strings.TrimSpace(tunnel.SSMethod)
+	tunnel.SSPassword = strings.TrimSpace(tunnel.SSPassword)
+	tunnel.Socks5User = strings.TrimSpace(tunnel.Socks5User)
+	tunnel.Socks5Pass = strings.TrimSpace(tunnel.Socks5Pass)
+	tunnel.ValidityUnit = strings.ToLower(strings.TrimSpace(tunnel.ValidityUnit))
 	if isCreate {
 		if tunnel.ID == "" {
 			id, err := util.RandID()
@@ -383,13 +513,115 @@ func normalizeGatewayTunnel(tunnel GatewayTunnel, isCreate bool) (GatewayTunnel,
 	if tunnel.ClientKey == "" {
 		return tunnel, fmt.Errorf("clientKey is required")
 	}
-	if tunnel.TargetPort <= 0 || tunnel.TargetPort > 65535 {
-		return tunnel, fmt.Errorf("targetPort must be between 1 and 65535")
+	if tunnel.TargetType == "" {
+		tunnel.TargetType = gatewaypkg.TargetTypeDirect
 	}
-	if err := validateGatewayTargetHost(tunnel.TargetHost); err != nil {
-		return tunnel, err
+	switch tunnel.TargetType {
+	case gatewaypkg.TargetTypeDirect:
+		tunnel.SSMethod = ""
+		tunnel.SSPassword = ""
+		tunnel.Socks5Auth = false
+		tunnel.Socks5User = ""
+		tunnel.Socks5Pass = ""
+		if tunnel.TargetHost == "" {
+			tunnel.TargetHost = "127.0.0.1"
+		}
+		if tunnel.TargetPort <= 0 || tunnel.TargetPort > 65535 {
+			return tunnel, fmt.Errorf("targetPort must be between 1 and 65535")
+		}
+		if err := validateGatewayTargetHost(tunnel.TargetHost); err != nil {
+			return tunnel, err
+		}
+	case gatewaypkg.TargetTypeSSProxy:
+		tunnel.TargetHost = ""
+		tunnel.TargetPort = 0
+		tunnel.Socks5Auth = false
+		tunnel.Socks5User = ""
+		tunnel.Socks5Pass = ""
+		if current != nil && current.TargetType == gatewaypkg.TargetTypeSSProxy && tunnel.SSPassword == "" {
+			tunnel.SSPassword = current.SSPassword
+		}
+		if tunnel.SSMethod == "" {
+			return tunnel, fmt.Errorf("ssMethod is required for ss_proxy")
+		}
+		if tunnel.SSPassword == "" {
+			return tunnel, fmt.Errorf("ssPassword is required for ss_proxy")
+		}
+		if err := validateGatewaySSMethod(tunnel.Protocol, tunnel.SSMethod, tunnel.SSPassword); err != nil {
+			return tunnel, err
+		}
+	case gatewaypkg.TargetTypeSocks5Proxy:
+		tunnel.TargetHost = ""
+		tunnel.TargetPort = 0
+		tunnel.SSMethod = ""
+		tunnel.SSPassword = ""
+		if current != nil && current.TargetType == gatewaypkg.TargetTypeSocks5Proxy {
+			if tunnel.Socks5User == "" {
+				tunnel.Socks5User = current.Socks5User
+			}
+			if tunnel.Socks5Pass == "" {
+				tunnel.Socks5Pass = current.Socks5Pass
+			}
+		}
+		if tunnel.Protocol != "tcp" {
+			return tunnel, fmt.Errorf("socks5_proxy currently supports tcp only")
+		}
+		if !tunnel.Socks5Auth {
+			tunnel.Socks5User = ""
+			tunnel.Socks5Pass = ""
+		}
+		if tunnel.Socks5Auth && (tunnel.Socks5User == "" || tunnel.Socks5Pass == "") {
+			return tunnel, fmt.Errorf("socks5 username and password are required when auth is enabled")
+		}
+	default:
+		return tunnel, fmt.Errorf("unsupported targetType %q", tunnel.TargetType)
+	}
+	switch tunnel.ValidityUnit {
+	case "", gatewaypkg.ValidityUnitPermanent:
+		tunnel.ValidityUnit = gatewaypkg.ValidityUnitPermanent
+		tunnel.ValidityValue = 0
+		tunnel.ExpiresAt = time.Time{}
+	case gatewaypkg.ValidityUnitHour, gatewaypkg.ValidityUnitDay:
+		if tunnel.ValidityValue <= 0 || tunnel.ValidityValue > gatewayValidityMaxValue {
+			return tunnel, fmt.Errorf("validityValue must be between 1 and %d", gatewayValidityMaxValue)
+		}
+		tunnel.ExpiresAt = resolveGatewayTunnelExpiry(tunnel, current)
+	default:
+		return tunnel, fmt.Errorf("validityUnit must be one of permanent, h, d")
 	}
 	return tunnel, nil
+}
+
+func resolveGatewayTunnelExpiry(tunnel GatewayTunnel, current *GatewayTunnel) time.Time {
+	now := time.Now()
+	if !tunnel.ExpiresAt.IsZero() {
+		return tunnel.ExpiresAt.UTC()
+	}
+	if current != nil &&
+		current.ValidityUnit == tunnel.ValidityUnit &&
+		current.ValidityValue == tunnel.ValidityValue &&
+		!current.ExpiresAt.IsZero() &&
+		current.ExpiresAt.After(now) {
+		return current.ExpiresAt.UTC()
+	}
+	duration := time.Duration(tunnel.ValidityValue) * time.Hour
+	if tunnel.ValidityUnit == gatewaypkg.ValidityUnitDay {
+		duration = time.Duration(tunnel.ValidityValue) * 24 * time.Hour
+	}
+	return now.Add(duration).UTC()
+}
+
+func validateGatewaySSMethod(protocol, method, password string) error {
+	ciph, err := sscore.PickCipher(method, nil, password)
+	if err != nil {
+		return fmt.Errorf("invalid ssMethod %q: %w", method, err)
+	}
+	if protocol == "udp" {
+		if _, ok := ciph.(sscore.PacketConnCipher); !ok {
+			return fmt.Errorf("ssMethod %q does not support udp", method)
+		}
+	}
+	return nil
 }
 
 func validateGatewayBindAddr(value string) error {
@@ -422,4 +654,37 @@ func cloneGatewayTunnel(tunnel *GatewayTunnel) GatewayTunnel {
 		return GatewayTunnel{}
 	}
 	return *tunnel
+}
+
+func isTunnelExpired(tunnel *GatewayTunnel, now time.Time) bool {
+	if tunnel == nil || tunnel.ExpiresAt.IsZero() {
+		return false
+	}
+	return !now.Before(tunnel.ExpiresAt)
+}
+
+func applyExpiredState(tunnel GatewayTunnel) GatewayTunnel {
+	if isTunnelExpired(&tunnel, time.Now()) {
+		tunnel.Status = gatewaypkg.StatusExpired
+		tunnel.Message = buildGatewayValidityStatus(&tunnel)
+		tunnel.RemoteAddr = ""
+	}
+	return tunnel
+}
+
+func buildGatewayValidityStatus(tunnel *GatewayTunnel) string {
+	if tunnel == nil {
+		return ""
+	}
+	if tunnel.ValidityUnit == gatewaypkg.ValidityUnitPermanent || tunnel.ExpiresAt.IsZero() {
+		return "permanent"
+	}
+	return fmt.Sprintf("valid until %s", tunnel.ExpiresAt.Local().Format("2006-01-02 15:04:05"))
+}
+
+func toUnixTime(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }

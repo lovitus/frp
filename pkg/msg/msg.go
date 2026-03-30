@@ -209,8 +209,15 @@ type GatewayTunnelConfig struct {
 	Protocol   string `json:"protocol,omitempty"`
 	BindAddr   string `json:"bind_addr,omitempty"`
 	ListenPort int    `json:"listen_port,omitempty"`
+	TargetType string `json:"target_type,omitempty"`
 	TargetHost string `json:"target_host,omitempty"`
 	TargetPort int    `json:"target_port,omitempty"`
+	SSMethod   string `json:"ss_method,omitempty"`
+	SSPassword string `json:"ss_password,omitempty"`
+	Socks5Auth bool   `json:"socks5_auth,omitempty"`
+	Socks5User string `json:"socks5_user,omitempty"`
+	Socks5Pass string `json:"socks5_pass,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
 }
 
 type GatewayTunnelsSync struct {

@@ -21,11 +21,12 @@ func TestNormalizeGatewayTunnelDefaults(t *testing.T) {
 		ListenPort: 6000,
 		ClientKey:  "client-a",
 		TargetPort: 8080,
-	}, true)
+	}, true, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, tunnel.ID)
 	require.Equal(t, "0.0.0.0", tunnel.BindAddr)
 	require.Equal(t, "127.0.0.1", tunnel.TargetHost)
+	require.Equal(t, gatewaypkg.TargetTypeDirect, tunnel.TargetType)
 }
 
 func TestGatewayTunnelManagerSyncClientSendsWireConfig(t *testing.T) {
@@ -62,6 +63,124 @@ func TestGatewayTunnelManagerSyncClientSendsWireConfig(t *testing.T) {
 	require.Equal(t, created.ID, sent.Tunnels[0].ID)
 	require.Equal(t, "127.0.0.1", sent.Tunnels[0].BindAddr)
 	require.Equal(t, 6000, sent.Tunnels[0].ListenPort)
+}
+
+func TestGatewayTunnelManagerUpdateUsesPathIDWhenPayloadIDIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+
+	created, err := manager.Create(GatewayTunnel{
+		Name:       "web",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6000,
+		ClientKey:  "client-a",
+		TargetHost: "127.0.0.1",
+		TargetPort: 8080,
+	})
+	require.NoError(t, err)
+
+	updated, err := manager.Update(created.ID, GatewayTunnel{
+		Name:       "web",
+		Remark:     "updated",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6000,
+		ClientKey:  "client-a",
+		TargetHost: "127.0.0.1",
+		TargetPort: 8081,
+	})
+	require.NoError(t, err)
+	require.Equal(t, created.ID, updated.ID)
+	require.Equal(t, "updated", updated.Remark)
+	require.Equal(t, 8081, updated.TargetPort)
+}
+
+func TestGatewayTunnelManagerUpdateClearsInactiveTargetSecrets(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+
+	created, err := manager.Create(GatewayTunnel{
+		Name:          "proxy",
+		Protocol:      "tcp",
+		BindAddr:      "127.0.0.1",
+		ListenPort:    6001,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitPermanent,
+		ValidityValue: 0,
+	})
+	require.NoError(t, err)
+
+	updated, err := manager.Update(created.ID, GatewayTunnel{
+		Name:       "proxy",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6001,
+		ClientKey:  "client-a",
+		TargetType: gatewaypkg.TargetTypeDirect,
+		TargetHost: "127.0.0.1",
+		TargetPort: 8080,
+	})
+	require.NoError(t, err)
+	require.Equal(t, gatewaypkg.TargetTypeDirect, updated.TargetType)
+	require.Empty(t, updated.SSMethod)
+	require.Empty(t, updated.SSPassword)
+	require.False(t, updated.Socks5Auth)
+	require.Empty(t, updated.Socks5User)
+	require.Empty(t, updated.Socks5Pass)
+	require.Equal(t, "127.0.0.1", updated.TargetHost)
+	require.Equal(t, 8080, updated.TargetPort)
+}
+
+func TestGatewayTunnelManagerUpdateDisablingSocks5AuthClearsStoredCredentials(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+
+	created, err := manager.Create(GatewayTunnel{
+		Name:          "proxy",
+		Protocol:      "tcp",
+		BindAddr:      "127.0.0.1",
+		ListenPort:    6002,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSocks5Proxy,
+		Socks5Auth:    true,
+		Socks5User:    "demo",
+		Socks5Pass:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitPermanent,
+		ValidityValue: 0,
+	})
+	require.NoError(t, err)
+
+	updated, err := manager.Update(created.ID, GatewayTunnel{
+		Name:          "proxy",
+		Protocol:      "tcp",
+		BindAddr:      "127.0.0.1",
+		ListenPort:    6002,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSocks5Proxy,
+		Socks5Auth:    false,
+		ValidityUnit:  gatewaypkg.ValidityUnitPermanent,
+		ValidityValue: 0,
+	})
+	require.NoError(t, err)
+	require.False(t, updated.Socks5Auth)
+	require.Empty(t, updated.Socks5User)
+	require.Empty(t, updated.Socks5Pass)
 }
 
 func TestGatewayTunnelManagerRefreshStatusMarksOfflineAndDisabled(t *testing.T) {
@@ -201,15 +320,332 @@ func TestNormalizeGatewayTunnelRejectsInvalidFields(t *testing.T) {
 				TargetPort: 8080,
 			},
 		},
+		{
+			name: "socks5 udp unsupported",
+			tunnel: GatewayTunnel{
+				Name:       "web",
+				Protocol:   "udp",
+				ListenPort: 6000,
+				ClientKey:  "client-a",
+				TargetType: gatewaypkg.TargetTypeSocks5Proxy,
+			},
+		},
+		{
+			name: "ss udp method unsupported",
+			tunnel: GatewayTunnel{
+				Name:          "web",
+				Protocol:      "udp",
+				ListenPort:    6001,
+				ClientKey:     "client-a",
+				TargetType:    gatewaypkg.TargetTypeSSProxy,
+				SSMethod:      "none",
+				SSPassword:    "secret",
+				ValidityUnit:  gatewaypkg.ValidityUnitPermanent,
+				ValidityValue: 0,
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := normalizeGatewayTunnel(tc.tunnel, true)
+			_, err := normalizeGatewayTunnel(tc.tunnel, true, nil)
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestGatewayTunnelManagerExpireDueFiltersWireConfig(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:          "temp-ss",
+		Protocol:      "tcp",
+		ListenPort:    6003,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+
+	manager.mu.Lock()
+	manager.tunnels[created.ID].ExpiresAt = time.Now().Add(-time.Second)
+	manager.mu.Unlock()
+
+	affected := manager.ExpireDue(time.Now())
+	require.Equal(t, []string{"client-a"}, affected)
+
+	current, ok := manager.Get(created.ID)
+	require.True(t, ok)
+	require.Equal(t, gatewaypkg.StatusExpired, current.Status)
+
+	wire := manager.listWireConfigsForClient("client-a")
+	require.Empty(t, wire)
+}
+
+func TestGatewayTunnelManagerExpireDueStillSyncsAlreadyMarkedExpiredTunnel(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:          "temp-ss",
+		Protocol:      "tcp",
+		ListenPort:    6004,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	manager.mu.Lock()
+	manager.tunnels[created.ID].ExpiresAt = now.Add(-time.Second)
+	manager.tunnels[created.ID].Status = gatewaypkg.StatusExpired
+	manager.tunnels[created.ID].Message = buildGatewayValidityStatus(manager.tunnels[created.ID])
+	manager.mu.Unlock()
+
+	affected := manager.ExpireDue(now)
+	require.Empty(t, affected)
+}
+
+func TestNormalizeGatewayTunnelPreservesExpiryOnUpdateWhenValidityUnchanged(t *testing.T) {
+	t.Parallel()
+
+	expiresAt := time.Now().Add(3 * time.Hour).UTC()
+	tunnel, err := normalizeGatewayTunnel(GatewayTunnel{
+		ID:            "tun-1",
+		Name:          "temp",
+		Protocol:      "tcp",
+		ListenPort:    6005,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 6,
+	}, false, &GatewayTunnel{
+		ID:            "tun-1",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 6,
+		ExpiresAt:     expiresAt,
+	})
+	require.NoError(t, err)
+	require.True(t, tunnel.ExpiresAt.Equal(expiresAt))
+}
+
+func TestNormalizeGatewayTunnelRecomputesExpiredLeaseOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	expiredAt := time.Now().Add(-time.Hour).UTC()
+	tunnel, err := normalizeGatewayTunnel(GatewayTunnel{
+		ID:            "tun-2",
+		Name:          "temp",
+		Protocol:      "tcp",
+		ListenPort:    6013,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 6,
+	}, false, &GatewayTunnel{
+		ID:            "tun-2",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 6,
+		ExpiresAt:     expiredAt,
+	})
+	require.NoError(t, err)
+	require.True(t, tunnel.ExpiresAt.After(time.Now()))
+	require.False(t, tunnel.ExpiresAt.Equal(expiredAt))
+}
+
+func TestNormalizeGatewayTunnelUsesProvidedExpiryForImportRestore(t *testing.T) {
+	t.Parallel()
+
+	expiresAt := time.Now().Add(6 * time.Hour).UTC().Truncate(time.Second)
+	tunnel, err := normalizeGatewayTunnel(GatewayTunnel{
+		Name:          "temp",
+		Protocol:      "tcp",
+		ListenPort:    6006,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitDay,
+		ValidityValue: 1,
+		ExpiresAt:     expiresAt,
+	}, true, nil)
+	require.NoError(t, err)
+	require.True(t, tunnel.ExpiresAt.Equal(expiresAt))
+}
+
+func TestGatewayTunnelManagerExpireDueReturnsAffectedOnlyOnce(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:          "temp-ss",
+		Protocol:      "tcp",
+		ListenPort:    6007,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	manager.mu.Lock()
+	manager.tunnels[created.ID].ExpiresAt = now.Add(-time.Second)
+	manager.mu.Unlock()
+
+	require.Equal(t, []string{"client-a"}, manager.ExpireDue(now))
+	require.Empty(t, manager.ExpireDue(now.Add(time.Second)))
+}
+
+func TestGatewayTunnelManagerRefreshStatusSyncsClientWhenTunnelExpires(t *testing.T) {
+	t.Parallel()
+
+	var syncCount int
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) {
+			return registry.ClientInfo{Key: "client-a", Online: true, AllowGatewayTunnels: true}, true
+		},
+		func(clientKey string, message msg.Message) error {
+			require.Equal(t, "client-a", clientKey)
+			if _, ok := message.(*msg.GatewayTunnelsSync); ok {
+				syncCount++
+			}
+			return nil
+		},
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:          "temp-ss",
+		Protocol:      "tcp",
+		ListenPort:    6008,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+
+	manager.mu.Lock()
+	manager.tunnels[created.ID].ExpiresAt = time.Now().Add(-time.Second)
+	manager.mu.Unlock()
+
+	manager.RefreshStatus(context.Background(), []string{created.ID})
+	require.Equal(t, 1, syncCount)
+}
+
+func TestGatewayTunnelManagerNextExpiryReturnsNearestFutureDeadline(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+	_, err := manager.Create(GatewayTunnel{
+		Name:          "temp-a",
+		Protocol:      "tcp",
+		ListenPort:    6009,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+	createdB, err := manager.Create(GatewayTunnel{
+		Name:          "temp-b",
+		Protocol:      "tcp",
+		ListenPort:    6010,
+		ClientKey:     "client-b",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	expected := now.Add(5 * time.Second).UTC().Truncate(time.Second)
+	manager.mu.Lock()
+	for _, tunnel := range manager.tunnels {
+		tunnel.ExpiresAt = now.Add(10 * time.Second).UTC()
+	}
+	manager.tunnels[createdB.ID].ExpiresAt = expected
+	manager.mu.Unlock()
+
+	next, ok := manager.NextExpiry(now)
+	require.True(t, ok)
+	require.True(t, next.Equal(expected))
+}
+
+func TestGatewayTunnelManagerNextExpiryIgnoresAlreadyExpiredTunnels(t *testing.T) {
+	t.Parallel()
+
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return registry.ClientInfo{}, false },
+		nil,
+	)
+	createdA, err := manager.Create(GatewayTunnel{
+		Name:          "temp-a",
+		Protocol:      "tcp",
+		ListenPort:    6011,
+		ClientKey:     "client-a",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+	createdB, err := manager.Create(GatewayTunnel{
+		Name:          "temp-b",
+		Protocol:      "tcp",
+		ListenPort:    6012,
+		ClientKey:     "client-b",
+		TargetType:    gatewaypkg.TargetTypeSSProxy,
+		SSMethod:      "chacha20-ietf-poly1305",
+		SSPassword:    "secret",
+		ValidityUnit:  gatewaypkg.ValidityUnitHour,
+		ValidityValue: 1,
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	expected := now.Add(8 * time.Second).UTC().Truncate(time.Second)
+	manager.mu.Lock()
+	manager.tunnels[createdA.ID].ExpiresAt = now.Add(-time.Second).UTC()
+	manager.tunnels[createdB.ID].ExpiresAt = expected
+	manager.mu.Unlock()
+
+	next, ok := manager.NextExpiry(now)
+	require.True(t, ok)
+	require.True(t, next.Equal(expected))
 }
 
 func TestGatewayTunnelManagerRejectsDuplicateNamePerClient(t *testing.T) {

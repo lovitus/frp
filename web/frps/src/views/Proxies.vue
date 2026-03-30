@@ -345,6 +345,7 @@ const hydrateGatewayProxySummaries = async (items: BaseProxy[]) => {
     }
     item.annotations.set('frp/gateway-tunnel-name', tunnel.name || '')
     item.annotations.set('frp/gateway-tunnel-remark', tunnel.remark || '')
+    item.annotations.set('frp/gateway-target-type', tunnel.targetType || 'direct')
     item.annotations.set('frp/gateway-target-host', tunnel.targetHost || '')
     item.annotations.set('frp/gateway-target-port', String(tunnel.targetPort || ''))
   }

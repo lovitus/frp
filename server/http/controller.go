@@ -67,14 +67,23 @@ type GatewaySystemInfoManager interface {
 }
 
 type gatewayTunnelYAML struct {
-	Name       string `json:"name" yaml:"name"`
-	Remark     string `json:"remark,omitempty" yaml:"remark,omitempty"`
-	Protocol   string `json:"protocol" yaml:"protocol"`
-	BindAddr   string `json:"bindAddr" yaml:"bindAddr"`
-	ListenPort int    `json:"listenPort" yaml:"listenPort"`
-	ClientKey  string `json:"clientKey" yaml:"clientKey"`
-	TargetHost string `json:"targetHost" yaml:"targetHost"`
-	TargetPort int    `json:"targetPort" yaml:"targetPort"`
+	Name          string `json:"name" yaml:"name"`
+	Remark        string `json:"remark,omitempty" yaml:"remark,omitempty"`
+	Protocol      string `json:"protocol" yaml:"protocol"`
+	BindAddr      string `json:"bindAddr" yaml:"bindAddr"`
+	ListenPort    int    `json:"listenPort" yaml:"listenPort"`
+	ClientKey     string `json:"clientKey" yaml:"clientKey"`
+	TargetType    string `json:"targetType,omitempty" yaml:"targetType,omitempty"`
+	TargetHost    string `json:"targetHost" yaml:"targetHost"`
+	TargetPort    int    `json:"targetPort" yaml:"targetPort"`
+	SSMethod      string `json:"ssMethod,omitempty" yaml:"ssMethod,omitempty"`
+	SSPassword    string `json:"ssPassword,omitempty" yaml:"ssPassword,omitempty"`
+	Socks5Auth    bool   `json:"socks5Auth,omitempty" yaml:"socks5Auth,omitempty"`
+	Socks5User    string `json:"socks5User,omitempty" yaml:"socks5User,omitempty"`
+	Socks5Pass    string `json:"socks5Pass,omitempty" yaml:"socks5Pass,omitempty"`
+	ValidityValue int    `json:"validityValue,omitempty" yaml:"validityValue,omitempty"`
+	ValidityUnit  string `json:"validityUnit,omitempty" yaml:"validityUnit,omitempty"`
+	ExpiresAt     int64  `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`
 }
 
 type gatewayTunnelExportResponse struct {
@@ -322,7 +331,7 @@ func (c *Controller) APIGatewayTunnelList(ctx *httppkg.Context) (any, error) {
 	if ctx.Query("refresh") != "false" {
 		c.gatewayManager.RefreshStatus(ctx.Req.Context(), nil)
 	}
-	return c.gatewayManager.List(), nil
+	return sanitizeGatewayTunnels(c.gatewayManager.List()), nil
 }
 
 func (c *Controller) APIGatewayTunnelDetail(ctx *httppkg.Context) (any, error) {
@@ -340,7 +349,7 @@ func (c *Controller) APIGatewayTunnelDetail(ctx *httppkg.Context) (any, error) {
 	if !ok {
 		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("gateway tunnel %q not found", id))
 	}
-	return tunnel, nil
+	return sanitizeGatewayTunnel(tunnel), nil
 }
 
 func (c *Controller) APICreateGatewayTunnel(ctx *httppkg.Context) (any, error) {
@@ -361,7 +370,7 @@ func (c *Controller) APICreateGatewayTunnel(ctx *httppkg.Context) (any, error) {
 	if !ok {
 		return nil, httppkg.NewError(http.StatusInternalServerError, "gateway tunnel disappeared after creation")
 	}
-	return updated, nil
+	return sanitizeGatewayTunnel(updated), nil
 }
 
 func (c *Controller) APIUpdateGatewayTunnel(ctx *httppkg.Context) (any, error) {
@@ -393,7 +402,7 @@ func (c *Controller) APIUpdateGatewayTunnel(ctx *httppkg.Context) (any, error) {
 	if !ok {
 		return nil, httppkg.NewError(http.StatusInternalServerError, "gateway tunnel disappeared after update")
 	}
-	return updated, nil
+	return sanitizeGatewayTunnel(updated), nil
 }
 
 func (c *Controller) APIDeleteGatewayTunnel(ctx *httppkg.Context) (any, error) {
@@ -427,14 +436,23 @@ func (c *Controller) APIGatewayTunnelExport(ctx *httppkg.Context) (any, error) {
 	exportItems := make([]gatewayTunnelYAML, 0, len(items))
 	for _, item := range items {
 		exportItems = append(exportItems, gatewayTunnelYAML{
-			Name:       item.Name,
-			Remark:     item.Remark,
-			Protocol:   item.Protocol,
-			BindAddr:   item.BindAddr,
-			ListenPort: item.ListenPort,
-			ClientKey:  item.ClientKey,
-			TargetHost: item.TargetHost,
-			TargetPort: item.TargetPort,
+			Name:          item.Name,
+			Remark:        item.Remark,
+			Protocol:      item.Protocol,
+			BindAddr:      item.BindAddr,
+			ListenPort:    item.ListenPort,
+			ClientKey:     item.ClientKey,
+			TargetType:    item.TargetType,
+			TargetHost:    item.TargetHost,
+			TargetPort:    item.TargetPort,
+			SSMethod:      item.SSMethod,
+			SSPassword:    item.SSPassword,
+			Socks5Auth:    item.Socks5Auth,
+			Socks5User:    item.Socks5User,
+			Socks5Pass:    item.Socks5Pass,
+			ValidityValue: item.ValidityValue,
+			ValidityUnit:  item.ValidityUnit,
+			ExpiresAt:     unixTimeOrZero(item.ExpiresAt),
 		})
 	}
 
@@ -492,14 +510,26 @@ func (c *Controller) APIGatewayTunnelImport(ctx *httppkg.Context) (any, error) {
 
 	for idx, item := range payload.Tunnels {
 		tunnel := gatewaypkg.Tunnel{
-			Name:       strings.TrimSpace(item.Name),
-			Remark:     strings.TrimSpace(item.Remark),
-			Protocol:   strings.TrimSpace(item.Protocol),
-			BindAddr:   strings.TrimSpace(item.BindAddr),
-			ListenPort: item.ListenPort,
-			ClientKey:  strings.TrimSpace(item.ClientKey),
-			TargetHost: strings.TrimSpace(item.TargetHost),
-			TargetPort: item.TargetPort,
+			Name:          strings.TrimSpace(item.Name),
+			Remark:        strings.TrimSpace(item.Remark),
+			Protocol:      strings.TrimSpace(item.Protocol),
+			BindAddr:      strings.TrimSpace(item.BindAddr),
+			ListenPort:    item.ListenPort,
+			ClientKey:     strings.TrimSpace(item.ClientKey),
+			TargetType:    strings.TrimSpace(item.TargetType),
+			TargetHost:    strings.TrimSpace(item.TargetHost),
+			TargetPort:    item.TargetPort,
+			SSMethod:      strings.TrimSpace(item.SSMethod),
+			SSPassword:    strings.TrimSpace(item.SSPassword),
+			Socks5Auth:    item.Socks5Auth,
+			Socks5User:    strings.TrimSpace(item.Socks5User),
+			Socks5Pass:    strings.TrimSpace(item.Socks5Pass),
+			ValidityValue: item.ValidityValue,
+			ValidityUnit:  strings.TrimSpace(item.ValidityUnit),
+			ExpiresAt:     time.Unix(item.ExpiresAt, 0).UTC(),
+		}
+		if item.ExpiresAt <= 0 {
+			tunnel.ExpiresAt = time.Time{}
 		}
 		if err := c.validateGatewayTunnelImportPayload(tunnel); err != nil {
 			return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("invalid tunnel at index %d: %v", idx, err))
@@ -557,7 +587,16 @@ func (c *Controller) parseGatewayTunnelPayload(ctx *httppkg.Context) (gatewaypkg
 	tunnel.Protocol = strings.TrimSpace(tunnel.Protocol)
 	tunnel.BindAddr = strings.TrimSpace(tunnel.BindAddr)
 	tunnel.ClientKey = strings.TrimSpace(tunnel.ClientKey)
+	tunnel.TargetType = strings.TrimSpace(tunnel.TargetType)
 	tunnel.TargetHost = strings.TrimSpace(tunnel.TargetHost)
+	tunnel.SSMethod = strings.TrimSpace(tunnel.SSMethod)
+	tunnel.SSPassword = strings.TrimSpace(tunnel.SSPassword)
+	tunnel.Socks5User = strings.TrimSpace(tunnel.Socks5User)
+	tunnel.Socks5Pass = strings.TrimSpace(tunnel.Socks5Pass)
+	tunnel.ValidityUnit = strings.TrimSpace(tunnel.ValidityUnit)
+	if !tunnel.ExpiresAt.IsZero() {
+		return gatewaypkg.Tunnel{}, httppkg.NewError(http.StatusBadRequest, "expiresAt is only supported for import/restore")
+	}
 	if err := c.validateGatewayTunnelClient(tunnel); err != nil {
 		return gatewaypkg.Tunnel{}, err
 	}
@@ -616,6 +655,27 @@ func parseGatewayTunnelYAML(raw string) (gatewayTunnelExportResponse, error) {
 
 func gatewayTunnelIdentity(clientKey, name string) string {
 	return strings.TrimSpace(clientKey) + "\x00" + strings.TrimSpace(name)
+}
+
+func unixTimeOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
+func sanitizeGatewayTunnels(items []gatewaypkg.Tunnel) []gatewaypkg.Tunnel {
+	out := make([]gatewaypkg.Tunnel, 0, len(items))
+	for _, item := range items {
+		out = append(out, sanitizeGatewayTunnel(item))
+	}
+	return out
+}
+
+func sanitizeGatewayTunnel(tunnel gatewaypkg.Tunnel) gatewaypkg.Tunnel {
+	tunnel.SSPassword = ""
+	tunnel.Socks5Pass = ""
+	return tunnel
 }
 
 func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*model.ProxyStatsInfo) {
