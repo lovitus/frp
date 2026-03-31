@@ -383,7 +383,7 @@ while (($# > 0)); do
 done
 
 if [[ -z "$RAW_BASE" ]]; then
-  RAW_BASE="https://raw.githubusercontent.com/${REPO}/dev/hack/quick-deploy"
+  RAW_BASE="https://raw.githubusercontent.com/${REPO}/codex/mix-transport-release/hack/quick-deploy"
 fi
 
 echo "Repo: ${REPO}"

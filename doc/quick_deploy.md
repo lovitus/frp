@@ -2,6 +2,8 @@
 
 This fork includes interactive deployment scripts for fast bootstrap on Unix-like environments (Linux/macOS/FreeBSD/OpenBSD/Termux-like Android shells).
 
+Windows PowerShell quick-deploy scripts are also provided for `frps` and `frpc`.
+
 ## Entry Script
 
 ```bash
@@ -15,6 +17,12 @@ curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-rel
 ```
 
 The script asks whether to deploy `frps` or `frpc`.
+
+## Windows Entry Script
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.ps1 | iex"
+```
 
 ## Behavior
 
@@ -85,18 +93,37 @@ Validation:
 Deploy server directly:
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/dev/hack/quick-deploy/install-frps.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.sh | bash -
 ```
 
 Deploy client directly:
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/dev/hack/quick-deploy/install-frpc.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frpc.sh | bash -
 ```
 
 Use fixed release tag:
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/dev/hack/quick-deploy/install-frps.sh | \
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.sh | \
   bash -s -- --repo lovitus/frp --release-tag v0.68.1-mix.16
+```
+
+Windows server directly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.ps1 | iex"
+```
+
+Windows client directly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frpc.ps1 | iex"
+```
+
+Windows with fixed release tag:
+
+```powershell
+$env:FRP_RELEASE_TAG='v0.68.1-mix.25'
+powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.ps1 | iex"
 ```
