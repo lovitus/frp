@@ -313,8 +313,9 @@ verify_and_smoke_run() {
 }
 
 print_next_steps() {
-  local token_b64 frpc_url
+  local token_b64 frpc_url frpc_ps_url
   frpc_url="${RAW_BASE}/install-frpc.sh"
+  frpc_ps_url="${RAW_BASE}/install-frpc.ps1"
   if ! token_b64="$(encode_b64 "${MIX_TOKEN_VALUE}")"; then
     echo "Warning: base64 encoder not found; cannot generate preset frpc one-liner." >&2
     token_b64=""
@@ -329,13 +330,16 @@ Done. Generated files in current directory:
 One-click start command:
   ./${BINARY_NAME} -c ./${CFG_NAME}
 
-One-click frpc deploy command (preloaded mix settings):
-  wget -O- ${frpc_url} | bash -s -- --repo ${REPO} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
+Unix/macOS/Linux frpc quick-deploy command (preloaded mix settings):
+  wget -O- ${frpc_url} | bash -s -- --repo ${REPO} --release-tag ${RELEASE_TAG_RESOLVED} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
 
 Curl alternative:
-  curl -fsSL ${frpc_url} | bash -s -- --repo ${REPO} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
+  curl -fsSL ${frpc_url} | bash -s -- --repo ${REPO} --release-tag ${RELEASE_TAG_RESOLVED} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
 
-When frpc script runs with this command, it will ask only:
+Windows PowerShell frpc quick-deploy command (preloaded mix settings):
+  \$env:FRP_REPO='${REPO}'; \$env:FRP_RELEASE_TAG='${RELEASE_TAG_RESOLVED}'; \$env:FRP_MIX_BIND_PORT='${MIX_BIND_PORT}'; \$env:FRP_MIX_TOKEN_B64='${token_b64}'; powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${frpc_ps_url} | iex"
+
+When either quick-deploy command runs, it will ask only:
   1) serverAddr (your frps public IP/domain)
   2) clientID
 EOF
@@ -349,8 +353,12 @@ Done. Generated files in current directory:
 One-click start command:
   ./${BINARY_NAME} -c ./${CFG_NAME}
 
-Manual frpc installer:
+Unix/macOS/Linux frpc installer:
   wget -O- ${frpc_url} | bash -
+  # then input serverAddr / mixBindPort / password / clientID interactively
+
+Windows PowerShell frpc installer:
+  powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${frpc_ps_url} | iex"
   # then input serverAddr / mixBindPort / password / clientID interactively
 EOF
   fi

@@ -223,11 +223,21 @@ Verify-And-SmokeRun
 
 $mixToken = Build-DefaultMixToken $CONNECT_PASSWORD
 $mixTokenB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($mixToken))
+$unixFrpcUrl = "$RawBase/install-frpc.sh"
+$windowsFrpcUrl = "$RawBase/install-frpc.ps1"
 
 Write-Host ''
 Write-Host 'Generated .\frps.toml'
 Write-Host 'Start command:'
 Write-Host '.\frps.exe -c .\frps.toml'
 Write-Host ''
-Write-Host 'Windows frpc quick-deploy command:'
-Write-Host "`$env:FRP_REPO='$Repo'; `$env:FRP_RELEASE_TAG='$($release.tag_name)'; `$env:FRP_SERVER_ADDR='YOUR_SERVER_ADDR'; `$env:FRP_MIX_BIND_PORT='$MIX_BIND_PORT'; `$env:FRP_MIX_TOKEN_B64='$mixTokenB64'; powershell -ExecutionPolicy Bypass -Command `"iwr -UseBasicParsing $RawBase/install-frpc.ps1 | iex`""
+Write-Host 'Unix/macOS/Linux frpc quick-deploy command:'
+Write-Host "wget -O- $unixFrpcUrl | bash -s -- --repo $Repo --release-tag $($release.tag_name) --mix-bind-port $MIX_BIND_PORT --mix-token-b64 '$mixTokenB64'"
+Write-Host "curl -fsSL $unixFrpcUrl | bash -s -- --repo $Repo --release-tag $($release.tag_name) --mix-bind-port $MIX_BIND_PORT --mix-token-b64 '$mixTokenB64'"
+Write-Host ''
+Write-Host 'Windows PowerShell frpc quick-deploy command:'
+Write-Host "`$env:FRP_REPO='$Repo'; `$env:FRP_RELEASE_TAG='$($release.tag_name)'; `$env:FRP_MIX_BIND_PORT='$MIX_BIND_PORT'; `$env:FRP_MIX_TOKEN_B64='$mixTokenB64'; powershell -ExecutionPolicy Bypass -Command `"iwr -UseBasicParsing $windowsFrpcUrl | iex`""
+Write-Host ''
+Write-Host 'When either quick-deploy command runs, it will ask only:'
+Write-Host '  1) serverAddr (your frps public IP/domain)'
+Write-Host '  2) clientID'
