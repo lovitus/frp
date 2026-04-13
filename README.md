@@ -7,6 +7,42 @@
 
 [README](README.md) | [中文文档](README_zh.md)
 
+## Quick Start (This Fork)
+
+If you just want to get a working `frps` or `frpc` quickly, start here instead of reading the full technical docs first.
+
+One-command interactive setup on Unix-like systems:
+
+```bash
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
+```
+
+or:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
+```
+
+One-command interactive setup on Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.ps1 | iex"
+```
+
+Quick-deploy features:
+
+- asks whether to install `frps` or `frpc`
+- downloads the matching release binary for the current OS/arch
+- generates `frps.toml` or `frpc.toml` in the current directory
+- runs config verification and a short smoke check
+- prints pinned `frpc` quick-deploy commands after `frps` setup
+
+More operator-focused quick-start details:
+
+- [Quick Deploy](/doc/quick_deploy.md)
+- [Mix Transport](/doc/mix.md)
+- [Gateway Tunnels](/doc/gateway_tunnels.md)
+
 ## Sponsors
 
 frp is an open source project with its ongoing development made possible entirely by the support of our awesome sponsors. If you'd like to join them, please consider [sponsoring frp's development](https://github.com/sponsors/fatedier).
