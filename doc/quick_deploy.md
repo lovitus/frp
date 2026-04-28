@@ -18,6 +18,10 @@ curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-rel
 
 The script asks whether to deploy `frps` or `frpc`.
 
+The answer is normalized, so `frpc`, `FRPC`, and values with accidental
+leading/trailing spaces are accepted. This path avoids `xargs` so it also works
+better on OpenWrt/BusyBox-style shells.
+
 ## Windows Entry Script
 
 ```powershell
@@ -89,6 +93,21 @@ Validation:
 - short smoke start check (non-fatal warning if server is unreachable)
 
 ## Direct Script Examples
+
+If a constrained shell still has trouble with the first interactive selector,
+you can skip only that selector while keeping all later prompts interactive:
+
+```bash
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | \
+  bash -s -- --type frpc
+```
+
+or:
+
+```bash
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | \
+  bash -s -- --type frps
+```
 
 Deploy server directly:
 

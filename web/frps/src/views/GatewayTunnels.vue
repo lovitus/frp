@@ -2,7 +2,10 @@
   <div class="gateway-page">
     <div class="page-header">
       <div class="title-section">
-        <h1 class="page-title">Gateway Tunnels</h1>
+        <div class="title-row">
+          <h1 class="page-title">Gateway Tunnels</h1>
+          <span class="mem-chip" @click="openExportDialog">⚠ Memory-only · Export before restart</span>
+        </div>
         <p class="page-subtitle">
           Create runtime TCP or UDP listeners on frps and route them through an
           opted-in client.
@@ -12,47 +15,43 @@
         <ActionButton variant="outline" size="small" @click="fetchData(true)">
           Refresh
         </ActionButton>
-        <ActionButton variant="outline" size="small" @click="openExportDialog">
-          Export YAML
-        </ActionButton>
-        <ActionButton variant="outline" size="small" @click="openImportDialog">
-          Import YAML
-        </ActionButton>
+        <PopoverMenu :width="180" placement="bottom-end">
+          <template #trigger>
+            <ActionButton variant="outline" size="small">···</ActionButton>
+          </template>
+          <PopoverMenuItem @click="openExportDialog">Export YAML</PopoverMenuItem>
+          <PopoverMenuItem @click="openImportDialog">Import YAML</PopoverMenuItem>
+        </PopoverMenu>
         <ActionButton
-          variant="outline"
           size="small"
           :disabled="eligibleClients.length === 0"
           @click="openCreateDialog"
         >
-          Create Tunnel
+          + Create Tunnel
         </ActionButton>
       </div>
     </div>
 
-    <div v-if="eligibleClients.length === 0" class="warning-banner">
-      No eligible gateway clients. Gateway tunnels currently require a stable
-      `clientID` plus `allowGatewayTunnels` or `mixAllowGateway` on frpc.
+    <div v-if="eligibleClients.length === 0 && !isMockMode" class="warning-banner">
+      No eligible gateway clients. Gateway tunnels require a stable
+      <code>clientID</code> plus <code>allowGatewayTunnels</code> or <code>mixAllowGateway</code> on frpc.
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card">
-        <span class="stat-label">Gateway Clients</span>
+      <div
+        class="stat-card stat-card-clickable"
+        @click="gatewayListExpanded = !gatewayListExpanded"
+      >
+        <span class="stat-label">Gateway Nodes</span>
         <span class="stat-value">
           {{ gatewayOnlineCount }}/{{ gatewayRegisteredCount }}
-          <span class="stat-inline-meta">online / registered</span>
+          <span class="stat-inline-meta">online / total</span>
         </span>
-        <ActionButton
-          variant="outline"
-          size="small"
-          class="snapshot-toggle"
-          @click="gatewayListExpanded = !gatewayListExpanded"
-        >
-          {{ gatewayListExpanded ? 'Hide Gateway List' : 'Show Gateway List' }}
-        </ActionButton>
+        <span class="stat-hint">{{ gatewayListExpanded ? '▲ Hide nodes' : '▼ View nodes' }}</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Total</span>
-        <span class="stat-value">{{ tunnels.length }}</span>
+        <span class="stat-value">{{ displayTunnels.length }}</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Online</span>
@@ -124,12 +123,6 @@
               <span class="snapshot-time-label">Offline</span>
               <span class="snapshot-time-value">{{ formatSnapshotAgo(client.disconnectedAt) }}</span>
             </span>
-          </div>
-          <div class="snapshot-absolute-line">
-            <span v-if="client.loginTimestamp">Login {{ formatSnapshotAbsolute(client.loginTimestamp) }}</span>
-            <span>First {{ formatSnapshotAbsolute(client.firstConnectedAt) }}</span>
-            <span>Last {{ formatSnapshotAbsolute(client.lastConnectedAt) }}</span>
-            <span v-if="client.disconnectedAt">Offline {{ formatSnapshotAbsolute(client.disconnectedAt) }}</span>
           </div>
           <div class="snapshot-identity-line">
             <span>Key {{ client.key }}</span>
@@ -272,22 +265,30 @@
       </template>
     </BaseDialog>
 
-    <div class="filter-row">
+    <div class="filter-bar">
+      <div class="status-tabs">
+        <button
+          v-for="tab in statusTabs"
+          :key="tab.value"
+          class="status-tab"
+          :class="{ active: statusFilter === tab.value }"
+          @click="statusFilter = tab.value"
+        >
+          <span class="tab-label">{{ tab.label }}</span>
+          <span class="tab-count">{{ tab.count }}</span>
+        </button>
+      </div>
       <el-input
         v-model="searchText"
-        placeholder="Search gateway tunnels..."
+        placeholder="Search tunnels..."
         clearable
         class="search-input"
       />
-      <el-select v-model="statusFilter" class="status-select">
-        <el-option label="All Statuses" value="all" />
-        <el-option
-          v-for="item in statusOptions"
-          :key="item.value"
-          :label="item.label"
-          :value="item.value"
-        />
-      </el-select>
+    </div>
+
+    <div v-if="isMockMode" class="demo-banner">
+      <span class="demo-badge">示例数据</span>
+      暂无实际 gateway tunnel，以下为样式预览。接入支持 gateway 的 frpc 客户端并创建 tunnel 后自动替换。
     </div>
 
     <div v-loading="loading" class="table-wrapper">
@@ -296,6 +297,7 @@
           v-for="row in filteredTunnels"
           :key="row.id"
           class="tunnel-card"
+          :class="`status-${row.status}`"
         >
           <div class="tunnel-card-header">
             <div class="tunnel-headline">
@@ -311,22 +313,27 @@
               <div v-if="row.remark" class="tunnel-remark">{{ row.remark }}</div>
             </div>
 
-            <div class="row-actions">
-              <ActionButton
-                variant="outline"
-                size="small"
-                @click="openEditDialog(row)"
-              >
-                Edit
-              </ActionButton>
-              <ActionButton
-                variant="outline"
-                size="small"
-                danger
-                @click="confirmDelete(row)"
-              >
-                Delete
-              </ActionButton>
+            <div class="tunnel-header-right">
+              <span class="tunnel-updated">{{ formatUpdatedAt(row.updatedAt) }}</span>
+              <div class="row-actions">
+                <ActionButton
+                  variant="outline"
+                  size="small"
+                  :disabled="isMockMode"
+                  @click="openEditDialog(row)"
+                >
+                  Edit
+                </ActionButton>
+                <ActionButton
+                  variant="outline"
+                  size="small"
+                  danger
+                  :disabled="isMockMode"
+                  @click="confirmDelete(row)"
+                >
+                  Delete
+                </ActionButton>
+              </div>
             </div>
           </div>
 
@@ -334,9 +341,7 @@
             <section class="detail-panel">
               <div class="detail-label">Listen</div>
               <code class="detail-code">{{ row.bindAddr }}:{{ row.listenPort }}</code>
-              <div class="detail-meta">
-                Public entrypoint on frps
-              </div>
+              <div class="detail-meta">Public entrypoint on frps</div>
             </section>
 
             <section class="detail-panel">
@@ -364,29 +369,16 @@
             <section class="detail-panel">
               <div class="detail-label">Target</div>
               <code class="detail-code">{{ formatTunnelTarget(row) }}</code>
-              <div class="detail-meta">
-                {{ formatTunnelTargetMeta(row) }}
-              </div>
+              <div class="detail-meta">{{ formatTunnelTargetMeta(row) }}</div>
             </section>
 
-            <section class="detail-panel detail-panel-status">
+            <section class="detail-panel">
               <div class="detail-label">Status</div>
-              <div class="status-detail">
-                {{ formatTunnelValidity(row) }}
-              </div>
-              <div v-if="row.remoteAddr" class="status-detail">
-                remote {{ row.remoteAddr }}
-              </div>
-              <div v-if="row.message" class="status-message">
-                {{ row.message }}
-              </div>
+              <div class="status-detail">{{ formatTunnelValidity(row) }}</div>
+              <div v-if="row.remoteAddr" class="status-detail">remote {{ row.remoteAddr }}</div>
+              <div v-if="row.message" class="status-message">{{ row.message }}</div>
               <div v-else class="detail-meta">No recent status message</div>
             </section>
-          </div>
-
-          <div class="tunnel-card-footer">
-            <span class="footer-label">Updated</span>
-            <span class="footer-value">{{ formatUpdatedAt(row.updatedAt) }}</span>
           </div>
         </article>
       </div>
@@ -491,26 +483,37 @@
         label-position="top"
         class="gateway-form"
       >
-        <div class="form-grid">
+        <div class="form-row-2">
           <el-form-item label="Name" prop="name">
-            <el-input v-model="formState.name" maxlength="64" />
+            <el-input v-model="formState.name" maxlength="64" placeholder="e.g. ssh-edge-01" />
           </el-form-item>
-
           <el-form-item label="Protocol" prop="protocol">
-            <el-select v-model="formState.protocol">
-              <el-option label="TCP" value="tcp" />
-              <el-option
-                label="UDP"
-                value="udp"
+            <div class="seg-control">
+              <button
+                type="button"
+                class="seg-btn"
+                :class="{ active: formState.protocol === 'tcp' }"
+                @click="formState.protocol = 'tcp'"
+              >
+                TCP
+              </button>
+              <button
+                type="button"
+                class="seg-btn"
+                :class="{ active: formState.protocol === 'udp' }"
                 :disabled="formState.targetType === 'socks5_proxy'"
-              />
-            </el-select>
+                @click="formState.protocol = 'udp'"
+              >
+                UDP
+              </button>
+            </div>
           </el-form-item>
+        </div>
 
+        <div class="form-row-2">
           <el-form-item label="Bind Address" prop="bindAddr">
             <el-input v-model="formState.bindAddr" placeholder="0.0.0.0" />
           </el-form-item>
-
           <el-form-item label="Listen Port" prop="listenPort">
             <el-input-number
               v-model="formState.listenPort"
@@ -520,54 +523,137 @@
               class="full-width"
             />
           </el-form-item>
+        </div>
 
-          <el-form-item label="Gateway Client" prop="clientKey" class="wide">
-            <el-select
-              v-model="formState.clientKey"
-              filterable
-              placeholder="Select a gateway client"
-              class="gateway-client-select"
+        <el-form-item label="Gateway Client" prop="clientKey">
+          <el-select
+            v-model="formState.clientKey"
+            filterable
+            placeholder="Select a gateway client"
+            class="gateway-client-select"
+          >
+            <el-option
+              v-for="client in eligibleClients"
+              :key="client.key"
+              :label="formatClientOption(client)"
+              :value="client.key"
             >
-              <el-option
-                v-for="client in eligibleClients"
-                :key="client.key"
-                :label="formatClientOption(client)"
-                :value="client.key"
-              >
-                <div class="client-option">
-                  <div class="gateway-client-head">
-                    <span class="gateway-client-name">
-                      {{ client.displayName }}
-                    </span>
-                    <el-tag size="small" :type="client.online ? 'success' : 'info'">
-                      {{ client.online ? 'online' : 'offline' }}
-                    </el-tag>
-                  </div>
-                  <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
-                    {{ buildClientSubLabel(client) }}
-                  </div>
-                  <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
-                    {{ buildClientMetaLine(client) }}
-                  </div>
-                  <div class="client-option-subtitle">key {{ client.key }}</div>
+              <div class="client-option">
+                <div class="gateway-client-head">
+                  <span class="gateway-client-name">{{ client.displayName }}</span>
+                  <el-tag size="small" :type="client.online ? 'success' : 'info'">
+                    {{ client.online ? 'online' : 'offline' }}
+                  </el-tag>
                 </div>
-              </el-option>
+                <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
+                  {{ buildClientSubLabel(client) }}
+                </div>
+                <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
+                  {{ buildClientMetaLine(client) }}
+                </div>
+                <div class="client-option-subtitle">key {{ client.key }}</div>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="Target" prop="targetType">
+          <div class="seg-control">
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: formState.targetType === 'direct' }"
+              @click="formState.targetType = 'direct'"
+            >
+              Direct
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: formState.targetType === 'ss_proxy' }"
+              @click="formState.targetType = 'ss_proxy'"
+            >
+              Shadowsocks
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: formState.targetType === 'socks5_proxy' }"
+              @click="formState.targetType = 'socks5_proxy'"
+            >
+              SOCKS5
+            </button>
+          </div>
+        </el-form-item>
+
+        <div v-if="isDirectTarget" class="form-row-2">
+          <el-form-item label="Target Host" prop="targetHost">
+            <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
+          </el-form-item>
+          <el-form-item label="Target Port" prop="targetPort">
+            <el-input-number
+              v-model="formState.targetPort"
+              :min="1"
+              :max="65535"
+              controls-position="right"
+              class="full-width"
+            />
+          </el-form-item>
+        </div>
+
+        <div v-if="isSSTarget" class="form-row-2">
+          <el-form-item label="Cipher" prop="ssMethod">
+            <el-select v-model="formState.ssMethod">
+              <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
+              <el-option label="aes-256-gcm" value="aes-256-gcm" />
+              <el-option label="aes-128-gcm" value="aes-128-gcm" />
             </el-select>
           </el-form-item>
-
-          <el-form-item label="Remark" prop="remark" class="wide">
-            <el-input v-model="formState.remark" maxlength="256" />
+          <el-form-item label="Password" prop="ssPassword">
+            <el-input
+              v-model="formState.ssPassword"
+              show-password
+              :placeholder="editingTunnel?.targetType === 'ss_proxy' ? 'Leave blank to keep existing' : ''"
+            />
           </el-form-item>
+        </div>
 
-          <el-form-item label="Target Type" prop="targetType">
-            <el-select v-model="formState.targetType">
-              <el-option label="Direct" value="direct" />
-              <el-option label="SS Proxy (Recommended)" value="ss_proxy" />
-              <el-option label="SOCKS5 Proxy (Riskier)" value="socks5_proxy" />
-            </el-select>
+        <template v-if="isSocks5Target">
+          <div class="form-callout form-callout-warn">
+            SOCKS5 is easier to fingerprint than Shadowsocks. Prefer SS unless you specifically need it.
+          </div>
+          <div class="form-row-2">
+            <el-form-item label="Authentication">
+              <div class="inline-switch">
+                <el-switch v-model="formState.socks5Auth" />
+                <span class="inline-switch-label">
+                  {{ formState.socks5Auth ? 'Require credentials' : 'No authentication' }}
+                </span>
+              </div>
+            </el-form-item>
+          </div>
+          <div v-if="formState.socks5Auth" class="form-row-2">
+            <el-form-item label="Username" prop="socks5User">
+              <el-input
+                v-model="formState.socks5User"
+                :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+              />
+            </el-form-item>
+            <el-form-item label="Password" prop="socks5Pass">
+              <el-input
+                v-model="formState.socks5Pass"
+                show-password
+                :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+              />
+            </el-form-item>
+          </div>
+        </template>
+
+        <div class="form-row-2">
+          <el-form-item label="Remark" prop="remark">
+            <el-input v-model="formState.remark" maxlength="256" placeholder="Optional note" />
           </el-form-item>
-
-          <el-form-item label="Validity" prop="validityUnit">
+          <el-form-item label="Validity" prop="validityValue">
             <div class="validity-row">
               <el-input-number
                 v-model="formState.validityValue"
@@ -583,78 +669,6 @@
                 <el-option label="Days" value="d" />
               </el-select>
             </div>
-          </el-form-item>
-
-          <el-form-item
-            v-if="isDirectTarget"
-            label="Target Host"
-            prop="targetHost"
-          >
-            <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
-          </el-form-item>
-
-          <el-form-item
-            v-if="isDirectTarget"
-            label="Target Port"
-            prop="targetPort"
-          >
-            <el-input-number
-              v-model="formState.targetPort"
-              :min="1"
-              :max="65535"
-              controls-position="right"
-              class="full-width"
-            />
-          </el-form-item>
-
-          <el-form-item v-if="isSSTarget" label="SS Method" prop="ssMethod">
-            <el-select v-model="formState.ssMethod">
-              <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
-              <el-option label="aes-256-gcm" value="aes-256-gcm" />
-              <el-option label="aes-128-gcm" value="aes-128-gcm" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item v-if="isSSTarget" label="SS Password" prop="ssPassword">
-            <el-input
-              v-model="formState.ssPassword"
-              show-password
-              :placeholder="editingTunnel?.targetType === 'ss_proxy' ? 'Leave blank to keep existing password' : ''"
-            />
-          </el-form-item>
-
-          <el-form-item v-if="isSocks5Target" label="SOCKS5 Auth">
-            <el-switch v-model="formState.socks5Auth" />
-          </el-form-item>
-
-          <el-form-item v-if="isSocks5Target" label="SOCKS5 Notes" class="wide">
-            <div class="target-risk-copy">
-              SOCKS5 is easier to fingerprint and riskier than Shadowsocks. Prefer
-              SS unless you specifically need SOCKS5.
-            </div>
-          </el-form-item>
-
-          <el-form-item
-            v-if="isSocks5Target && formState.socks5Auth"
-            label="SOCKS5 Username"
-            prop="socks5User"
-          >
-            <el-input
-              v-model="formState.socks5User"
-              :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing username' : ''"
-            />
-          </el-form-item>
-
-          <el-form-item
-            v-if="isSocks5Target && formState.socks5Auth"
-            label="SOCKS5 Password"
-            prop="socks5Pass"
-          >
-            <el-input
-              v-model="formState.socks5Pass"
-              show-password
-              :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing password' : ''"
-            />
           </el-form-item>
         </div>
       </el-form>
@@ -695,6 +709,8 @@ import { ElMessage } from 'element-plus'
 import ActionButton from '@shared/components/ActionButton.vue'
 import BaseDialog from '@shared/components/BaseDialog.vue'
 import ConfirmDialog from '@shared/components/ConfirmDialog.vue'
+import PopoverMenu from '@shared/components/PopoverMenu.vue'
+import PopoverMenuItem from '@shared/components/PopoverMenuItem.vue'
 import { useResponsive } from '../composables/useResponsive'
 import { getClientGatewaySystemInfo, getClients } from '../api/client'
 import {
@@ -719,6 +735,69 @@ import { formatDistanceToNow, formatFileSize } from '../utils/format'
 
 const { isMobile } = useResponsive()
 
+const MOCK_TUNNELS: GatewayTunnelData[] = [
+  {
+    id: '__mock__1',
+    name: 'ssh-edge-01',
+    remark: 'SSH access via edge gateway',
+    protocol: 'tcp',
+    bindAddr: '0.0.0.0',
+    listenPort: 6022,
+    clientKey: 'edge-node-01',
+    targetType: 'direct',
+    targetHost: '127.0.0.1',
+    targetPort: 22,
+    status: 'online',
+    remoteAddr: '0.0.0.0:6022',
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: '__mock__2',
+    name: 'ss-proxy-hk',
+    remark: 'Shadowsocks outbound relay',
+    protocol: 'tcp',
+    bindAddr: '0.0.0.0',
+    listenPort: 8388,
+    clientKey: 'hk-relay-01',
+    targetType: 'ss_proxy',
+    ssMethod: 'chacha20-ietf-poly1305',
+    targetHost: '127.0.0.1',
+    targetPort: 0,
+    status: 'pending',
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: '__mock__3',
+    name: 'rdp-office',
+    remark: 'Windows Remote Desktop (office PC)',
+    protocol: 'tcp',
+    bindAddr: '0.0.0.0',
+    listenPort: 13389,
+    clientKey: 'office-pc',
+    targetType: 'direct',
+    targetHost: '192.168.1.100',
+    targetPort: 3389,
+    status: 'client-offline',
+    message: 'Gateway client is not connected',
+    updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+  },
+  {
+    id: '__mock__4',
+    name: 'socks5-us',
+    protocol: 'tcp',
+    bindAddr: '0.0.0.0',
+    listenPort: 1080,
+    clientKey: 'us-vps-01',
+    targetType: 'socks5_proxy',
+    socks5Auth: false,
+    targetHost: '127.0.0.1',
+    targetPort: 0,
+    status: 'apply-failed',
+    message: 'listen tcp 0.0.0.0:1080: bind: address already in use',
+    updatedAt: new Date(Date.now() - 7_200_000).toISOString(),
+  },
+]
+
 const clients = ref<Client[]>([])
 const tunnels = ref<GatewayTunnelData[]>([])
 const gatewayRegisteredCount = ref(0)
@@ -726,6 +805,7 @@ const gatewayOnlineCount = ref(0)
 const gatewaySnapshotClients = ref<Client[]>([])
 const gatewayListExpanded = ref(false)
 const loading = ref(false)
+const hasFetched = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
 const searchText = ref('')
@@ -904,18 +984,6 @@ const formRules: FormRules<typeof formState> = {
   ],
 }
 
-const statusOptions = [
-  { value: 'online', label: 'Online' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'client-offline', label: 'Client Offline' },
-  { value: 'disabled', label: 'Disabled' },
-  { value: 'expired', label: 'Expired' },
-  { value: 'register-failed', label: 'Register Failed' },
-  { value: 'target-invalid', label: 'Target Invalid' },
-  { value: 'target-unreachable', label: 'Target Unreachable' },
-  { value: 'invalid-config', label: 'Invalid Config' },
-  { value: 'apply-failed', label: 'Apply Failed' },
-]
 
 const clientMap = computed<Record<string, Client>>(() =>
   Object.fromEntries(clients.value.map((client) => [client.key, client])),
@@ -956,12 +1024,23 @@ const canReuseExistingSocks5Secret = computed(
     formState.socks5Auth,
 )
 
+const isMockMode = computed(
+  () =>
+    hasFetched.value &&
+    !loading.value &&
+    tunnels.value.length === 0 &&
+    eligibleClients.value.length === 0,
+)
+const displayTunnels = computed(() => isMockMode.value ? MOCK_TUNNELS : tunnels.value)
+
 const filteredTunnels = computed(() => {
   const query = searchText.value.trim().toLowerCase()
 
-  return [...tunnels.value]
+  return [...displayTunnels.value]
     .filter((tunnel) => {
-      if (statusFilter.value !== 'all' && tunnel.status !== statusFilter.value) {
+      if (statusFilter.value === 'issues') {
+        if (tunnel.status === 'online' || tunnel.status === 'pending') return false
+      } else if (statusFilter.value !== 'all' && tunnel.status !== statusFilter.value) {
         return false
       }
       if (!query) {
@@ -997,15 +1076,22 @@ const filteredTunnels = computed(() => {
 })
 
 const onlineCount = computed(
-  () => tunnels.value.filter((tunnel) => tunnel.status === 'online').length,
+  () => displayTunnels.value.filter((tunnel) => tunnel.status === 'online').length,
 )
 
 const attentionCount = computed(
   () =>
-    tunnels.value.filter(
+    displayTunnels.value.filter(
       (tunnel) => tunnel.status !== 'online' && tunnel.status !== 'pending',
     ).length,
 )
+
+const statusTabs = computed(() => [
+  { value: 'all', label: 'All', count: displayTunnels.value.length },
+  { value: 'online', label: 'Online', count: displayTunnels.value.filter((t) => t.status === 'online').length },
+  { value: 'pending', label: 'Pending', count: displayTunnels.value.filter((t) => t.status === 'pending').length },
+  { value: 'issues', label: 'Issues', count: attentionCount.value },
+])
 
 const getClientLabel = (clientKey: string) => {
   const client = clientMap.value[clientKey]
@@ -1188,10 +1274,6 @@ const formatSnapshotAgo = (value?: Date) => {
   return formatDistanceToNow(value)
 }
 
-const formatSnapshotAbsolute = (value?: Date) => {
-  if (!value || Number.isNaN(value.getTime())) return '-'
-  return snapshotTimeFormatter.format(value)
-}
 
 const resetForm = () => {
   formState.name = ''
@@ -1269,6 +1351,7 @@ const fetchData = async (refreshSnapshot = false) => {
     } else {
       await fetchTunnels()
     }
+    hasFetched.value = true
   } catch (error: any) {
     ElMessage({
       type: 'error',
@@ -1284,6 +1367,7 @@ const loadPageSnapshot = async () => {
   loading.value = true
   try {
     await Promise.all([fetchClients(true), fetchTunnels()])
+    hasFetched.value = true
   } catch (error: any) {
     ElMessage({
       type: 'error',
@@ -1547,9 +1631,14 @@ onMounted(() => {
   color: var(--el-text-color-primary);
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .page-subtitle {
   margin: 0;
-  max-width: 720px;
   color: var(--el-text-color-secondary);
   line-height: 1.5;
 }
@@ -1595,6 +1684,24 @@ onMounted(() => {
   line-height: 1.5;
 }
 
+.mem-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.08);
+  color: rgba(200, 130, 10, 0.95);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mem-chip:hover {
+  background: rgba(245, 158, 11, 0.14);
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1629,9 +1736,21 @@ onMounted(() => {
   margin-left: 8px;
 }
 
-.snapshot-toggle {
+.stat-card-clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.stat-card-clickable:hover {
+  background: var(--el-fill-color-light);
+}
+
+.stat-hint {
+  font-size: 12px;
+  color: var(--el-color-primary);
+  font-weight: 500;
   margin-top: 2px;
-  align-self: flex-start;
 }
 
 .gateway-snapshot {
@@ -1738,7 +1857,6 @@ onMounted(() => {
   word-break: break-word;
 }
 
-.snapshot-absolute-line,
 .snapshot-identity-line {
   display: flex;
   flex-wrap: wrap;
@@ -1778,11 +1896,6 @@ onMounted(() => {
   width: 100%;
 }
 
-.target-risk-copy {
-  font-size: 12px;
-  color: var(--el-color-danger);
-  line-height: 1.5;
-}
 
 .system-info-dialog {
   display: flex;
@@ -1891,19 +2004,97 @@ onMounted(() => {
   color: var(--el-text-color-primary);
 }
 
-.filter-row {
+.filter-bar {
   display: flex;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.search-input {
-  flex: 1;
-  min-width: 240px;
+.status-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--el-fill-color-light);
+  padding: 4px;
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 
-.status-select {
-  width: 220px;
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.07);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.demo-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.status-tab:hover {
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+}
+
+.status-tab.active {
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+  font-weight: 500;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.tab-label {
+  color: inherit;
+}
+
+.tab-count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--el-fill-color);
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+.status-tab.active .tab-count {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 200px;
 }
 
 .table-wrapper {
@@ -1921,14 +2112,45 @@ onMounted(() => {
   border: 1px solid var(--el-border-color-light);
   border-radius: 18px;
   overflow: hidden;
+  border-left: 3px solid transparent;
+}
+
+.tunnel-card.status-online {
+  border-left-color: var(--el-color-success);
+}
+
+.tunnel-card.status-pending,
+.tunnel-card.status-expired {
+  border-left-color: var(--el-color-warning);
+}
+
+.tunnel-card.status-register-failed,
+.tunnel-card.status-target-invalid,
+.tunnel-card.status-target-unreachable,
+.tunnel-card.status-invalid-config,
+.tunnel-card.status-apply-failed {
+  border-left-color: var(--el-color-danger);
 }
 
 .tunnel-card-header {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px 0;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px 0;
+}
+
+.tunnel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tunnel-updated {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  white-space: nowrap;
 }
 
 .tunnel-headline {
@@ -1954,8 +2176,8 @@ onMounted(() => {
 .tunnel-card-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  padding: 18px 20px;
+  gap: 12px;
+  padding: 12px 16px 14px;
 }
 
 .detail-panel {
@@ -1969,9 +2191,6 @@ onMounted(() => {
   border: 1px solid var(--el-border-color-extra-light);
 }
 
-.detail-panel-status {
-  justify-content: center;
-}
 
 .detail-label {
   font-size: 12px;
@@ -2008,35 +2227,17 @@ onMounted(() => {
 
 .tunnel-remark,
 .detail-meta,
-.status-detail,
-.status-message {
+.status-detail {
   color: var(--el-text-color-secondary);
   font-size: 13px;
   line-height: 1.4;
 }
 
 .status-message {
-  word-break: break-word;
-}
-
-.tunnel-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 20px 18px;
   color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.footer-label {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.footer-value {
-  color: var(--el-text-color-primary);
-  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .row-actions {
@@ -2046,17 +2247,80 @@ onMounted(() => {
 }
 
 .gateway-form {
-  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
 }
 
-.form-grid {
+.form-row-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
+  gap: 0 14px;
 }
 
-.wide {
-  grid-column: 1 / -1;
+.seg-control {
+  display: flex;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+  width: 100%;
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+
+.seg-btn:hover:not(:disabled) {
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+}
+
+.seg-btn.active {
+  background: var(--el-bg-color);
+  color: var(--el-color-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.seg-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.form-callout {
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-callout-warn {
+  background: rgba(245, 108, 108, 0.07);
+  border: 1px solid rgba(245, 108, 108, 0.18);
+  color: var(--el-color-danger);
+}
+
+.inline-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+}
+
+.inline-switch-label {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 .full-width {
@@ -2101,12 +2365,12 @@ code {
 
   .tunnel-card-grid,
   .snapshot-list,
-  .form-grid {
+  .form-row-2 {
     grid-template-columns: 1fr;
   }
 
   .actions-section,
-  .filter-row,
+  .filter-bar,
   .row-actions {
     width: 100%;
   }

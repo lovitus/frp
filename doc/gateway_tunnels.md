@@ -55,6 +55,16 @@ Each tunnel includes:
 - `targetPort`
 - `status`
 
+The page is optimized for dense operation:
+
+- the header shows a memory-only warning because tunnels are not persisted by frps
+- YAML import/export is available from the compact overflow menu
+- status tabs filter all, online, pending, and attention-needed tunnels
+- each tunnel card keeps `listen`, `gateway`, `target`, and `status` visible together on desktop
+- the create/edit dialog uses segmented controls for protocol and target type
+
+If there are no eligible gateway clients and no tunnels yet, the page may show a local preview dataset to demonstrate the layout. These preview rows are not sent to frps and cannot be edited or deleted.
+
 The page refreshes tunnel state on load and on create, update, or delete. It does not run a continuous background poll by default.
 
 The page also includes YAML import/export:
