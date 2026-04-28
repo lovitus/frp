@@ -53,6 +53,20 @@ read_interactive_line() {
   printf '%s' "$value"
 }
 
+trim() {
+  local s="$1"
+  s="$(printf '%s' "$s" | tr -d '\r\n')"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+normalize_mode() {
+  local mode="$1"
+  mode="$(trim "$mode")"
+  printf '%s' "$mode" | tr '[:upper:]' '[:lower:]'
+}
+
 while (($# > 0)); do
   case "$1" in
     --type)
@@ -83,6 +97,8 @@ while (($# > 0)); do
   esac
 done
 
+MODE="$(normalize_mode "$MODE")"
+
 if [[ -z "$MODE" ]]; then
   init_input_fd
   while true; do
@@ -90,7 +106,7 @@ if [[ -z "$MODE" ]]; then
       echo "Input aborted." >&2
       exit 1
     fi
-    MODE="$(echo "$MODE" | tr '[:upper:]' '[:lower:]' | xargs)"
+    MODE="$(normalize_mode "$MODE")"
     if [[ "$MODE" == "frps" || "$MODE" == "frpc" ]]; then
       break
     fi
