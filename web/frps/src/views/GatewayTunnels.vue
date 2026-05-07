@@ -317,7 +317,6 @@
             </div>
 
             <div class="tunnel-header-right">
-              <span class="tunnel-updated">{{ formatUpdatedAt(row.updatedAt) }}</span>
               <div class="row-actions">
                 <ActionButton
                   variant="outline"
@@ -503,46 +502,55 @@
               <div class="form-section-desc">Define the frps listener users will connect to.</div>
             </div>
           </div>
-          <div class="form-row-2">
-            <el-form-item label="Name" prop="name">
-              <el-input v-model="formState.name" maxlength="64" placeholder="e.g. ssh-edge-01" />
-            </el-form-item>
-            <el-form-item label="Protocol" prop="protocol">
-              <div class="seg-control">
-                <button
-                  type="button"
-                  class="seg-btn"
-                  :class="{ active: formState.protocol === 'tcp' }"
-                  @click="formState.protocol = 'tcp'"
-                >
-                  TCP
-                </button>
-                <button
-                  type="button"
-                  class="seg-btn"
-                  :class="{ active: formState.protocol === 'udp' }"
-                  :disabled="formState.targetType === 'socks5_proxy'"
-                  @click="formState.protocol = 'udp'"
-                >
-                  UDP
-                </button>
-              </div>
-            </el-form-item>
-          </div>
-
-          <div class="form-row-2">
-            <el-form-item label="Bind Address" prop="bindAddr">
-              <el-input v-model="formState.bindAddr" placeholder="0.0.0.0" />
-            </el-form-item>
-            <el-form-item label="Listen Port" prop="listenPort">
-              <el-input-number
-                v-model="formState.listenPort"
-                :min="1"
-                :max="65535"
-                controls-position="right"
-                class="full-width"
-              />
-            </el-form-item>
+          <div class="form-row-2 compact-row">
+            <div class="compact-field">
+              <span class="compact-label required">Name</span>
+              <el-form-item prop="name" class="compact-form-item">
+                <el-input v-model="formState.name" maxlength="64" placeholder="e.g. ssh-edge-01" />
+              </el-form-item>
+            </div>
+            <div class="compact-field">
+              <span class="compact-label required">Protocol</span>
+              <el-form-item prop="protocol" class="compact-form-item">
+                <div class="seg-control">
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    :class="{ active: formState.protocol === 'tcp' }"
+                    @click="formState.protocol = 'tcp'"
+                  >
+                    TCP
+                  </button>
+                  <button
+                    type="button"
+                    class="seg-btn"
+                    :class="{ active: formState.protocol === 'udp' }"
+                    :disabled="formState.targetType === 'socks5_proxy'"
+                    @click="formState.protocol = 'udp'"
+                  >
+                    UDP
+                  </button>
+                </div>
+              </el-form-item>
+            </div>
+            <div class="compact-field">
+              <span class="compact-label required">Bind Address</span>
+              <el-form-item prop="bindAddr" class="compact-form-item">
+                <el-input v-model="formState.bindAddr" placeholder="0.0.0.0" />
+              </el-form-item>
+            </div>
+            <div class="compact-field">
+              <span class="compact-label required">Listen Port</span>
+              <el-form-item prop="listenPort" class="compact-form-item">
+                <el-input-number
+                  v-model="formState.listenPort"
+                  :min="1"
+                  :max="65535"
+                  controls-position="right"
+                  class="full-width"
+                />
+              </el-form-item>
+            </div>
           </div>
         </section>
 
@@ -554,51 +562,49 @@
               <div class="form-section-desc">Pick the frpc node that will host the local target service.</div>
             </div>
           </div>
-          <el-form-item label="Client" prop="clientKey">
-            <el-select
-              v-model="formState.clientKey"
-              filterable
-              placeholder="Select a gateway client"
-              class="gateway-client-select"
-            >
-              <el-option
-                v-for="client in eligibleClients"
-                :key="client.key"
-                :label="formatClientOption(client)"
-                :value="client.key"
-              >
-                <div class="client-option">
-                  <div class="gateway-client-head">
-                    <span class="gateway-client-name">{{ client.displayName }}</span>
-                    <el-tag size="small" :type="client.online ? 'success' : 'info'">
-                      {{ client.online ? 'online' : 'offline' }}
-                    </el-tag>
-                  </div>
-                  <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
-                    {{ buildClientSubLabel(client) }}
-                  </div>
-                  <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
-                    {{ buildClientMetaLine(client) }}
-                  </div>
-                  <div class="client-option-subtitle">key {{ client.key }}</div>
-                </div>
-              </el-option>
-            </el-select>
-          </el-form-item>
-          <div v-if="selectedClient" class="selected-client-card">
-            <div class="gateway-client-head">
-              <span class="gateway-client-name">{{ selectedClient.displayName }}</span>
-              <el-tag size="small" :type="selectedClient.online ? 'success' : 'info'">
-                {{ selectedClient.online ? 'online' : 'offline' }}
-              </el-tag>
-            </div>
-            <div v-if="buildClientSubLabel(selectedClient)" class="detail-meta">
-              {{ buildClientSubLabel(selectedClient) }}
-            </div>
-            <div v-if="buildClientMetaLine(selectedClient)" class="detail-meta">
-              {{ buildClientMetaLine(selectedClient) }}
-            </div>
-            <div class="detail-meta">key {{ selectedClient.key }}</div>
+          <div class="compact-field compact-field-full">
+            <span class="compact-label required">Client</span>
+            <el-form-item prop="clientKey" class="compact-form-item">
+              <div class="client-select-row">
+                <el-select
+                  v-model="formState.clientKey"
+                  filterable
+                  placeholder="Select a gateway client"
+                  class="gateway-client-select"
+                >
+                  <el-option
+                    v-for="client in eligibleClients"
+                    :key="client.key"
+                    :label="formatClientOption(client)"
+                    :value="client.key"
+                  >
+                    <div class="client-option">
+                      <div class="gateway-client-head">
+                        <span class="gateway-client-name">{{ client.displayName }}</span>
+                        <el-tag size="small" :type="client.online ? 'success' : 'info'">
+                          {{ client.online ? 'online' : 'offline' }}
+                        </el-tag>
+                      </div>
+                      <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
+                        {{ buildClientSubLabel(client) }}
+                      </div>
+                      <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
+                        {{ buildClientMetaLine(client) }}
+                      </div>
+                      <div class="client-option-subtitle">key {{ client.key }}</div>
+                    </div>
+                  </el-option>
+                </el-select>
+                <el-tag
+                  v-if="selectedClient"
+                  size="small"
+                  :type="selectedClient.online ? 'success' : 'info'"
+                  class="client-state-tag"
+                >
+                  {{ selectedClient.online ? 'online' : 'offline' }}
+                </el-tag>
+              </div>
+            </el-form-item>
           </div>
         </section>
 
@@ -610,60 +616,70 @@
               <div class="form-section-desc">Choose whether frpc forwards directly or starts an embedded proxy.</div>
             </div>
           </div>
-          <el-form-item label="Target" prop="targetType">
-            <div class="target-mode-grid">
-              <button
-                type="button"
-                class="target-mode-card"
-                :class="{ active: formState.targetType === 'direct' }"
-                @click="formState.targetType = 'direct'"
-              >
-                <span class="target-mode-title">Direct</span>
-                <span class="target-mode-desc">Forward to host:port on the client side.</span>
-              </button>
-              <button
-                type="button"
-                class="target-mode-card"
-                :class="{ active: formState.targetType === 'ss_proxy' }"
-                @click="formState.targetType = 'ss_proxy'"
-              >
-                <span class="target-mode-title">Shadowsocks</span>
-                <span class="target-mode-desc">Existing go-shadowsocks2 embedded service.</span>
-              </button>
-              <button
-                type="button"
-                class="target-mode-card"
-                :class="{ active: formState.targetType === 'sing_ss_proxy' }"
-                @click="formState.targetType = 'sing_ss_proxy'"
-              >
-                <span class="target-mode-title">Sing SS</span>
-                <span class="target-mode-desc">Mihomo-compatible SS with optional UOT.</span>
-              </button>
-              <button
-                type="button"
-                class="target-mode-card"
-                :class="{ active: formState.targetType === 'socks5_proxy' }"
-                @click="formState.targetType = 'socks5_proxy'"
-              >
-                <span class="target-mode-title">SOCKS5</span>
-                <span class="target-mode-desc">Embedded SOCKS5 service on frpc.</span>
-              </button>
-            </div>
-          </el-form-item>
+          <div class="compact-field compact-field-full">
+            <span class="compact-label">Target</span>
+            <el-form-item prop="targetType" class="compact-form-item">
+              <div class="target-pill-row">
+                <button
+                  type="button"
+                  class="target-pill"
+                  :class="{ active: formState.targetType === 'direct' }"
+                  @click="formState.targetType = 'direct'"
+                >
+                  Direct
+                </button>
+                <button
+                  type="button"
+                  class="target-pill"
+                  :class="{ active: formState.targetType === 'ss_proxy' }"
+                  @click="formState.targetType = 'ss_proxy'"
+                >
+                  Shadowsocks
+                </button>
+                <button
+                  type="button"
+                  class="target-pill"
+                  :class="{ active: formState.targetType === 'sing_ss_proxy' }"
+                  @click="formState.targetType = 'sing_ss_proxy'"
+                >
+                  Sing SS
+                </button>
+                <button
+                  type="button"
+                  class="target-pill"
+                  :class="{ active: formState.targetType === 'socks5_proxy' }"
+                  @click="formState.targetType = 'socks5_proxy'"
+                >
+                  SOCKS5
+                </button>
+              </div>
+            </el-form-item>
+          </div>
+
+          <div class="target-mode-note">
+            <strong>{{ formatTargetTypeLabel(formState.targetType) }}</strong>
+            <span>{{ formatTargetTypeDescription(formState.targetType) }}</span>
+          </div>
 
           <div v-if="isDirectTarget" class="form-row-2">
-            <el-form-item label="Target Host" prop="targetHost">
-              <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
-            </el-form-item>
-            <el-form-item label="Target Port" prop="targetPort">
-              <el-input-number
-                v-model="formState.targetPort"
-                :min="1"
-                :max="65535"
-                controls-position="right"
-                class="full-width"
-              />
-            </el-form-item>
+            <div class="compact-field">
+              <span class="compact-label required">Target Host</span>
+              <el-form-item prop="targetHost" class="compact-form-item">
+                <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
+              </el-form-item>
+            </div>
+            <div class="compact-field">
+              <span class="compact-label required">Target Port</span>
+              <el-form-item prop="targetPort" class="compact-form-item">
+                <el-input-number
+                  v-model="formState.targetPort"
+                  :min="1"
+                  :max="65535"
+                  controls-position="right"
+                  class="full-width"
+                />
+              </el-form-item>
+            </div>
           </div>
 
           <template v-if="isSSTarget">
@@ -671,49 +687,61 @@
               Mihomo maps cipher to ssMethod and password to ssPassword. 2022 ciphers require a base64 PSK, not a normal password.
             </div>
             <div class="form-row-2">
-              <el-form-item label="Cipher" prop="ssMethod">
-                <el-select v-model="formState.ssMethod">
-                  <template v-if="isSingSSTarget">
-                    <el-option
-                      v-for="method in SING_SS_METHODS"
-                      :key="method"
-                      :label="method"
-                      :value="method"
-                    />
-                  </template>
-                  <template v-else>
-                    <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
-                    <el-option label="aes-256-gcm" value="aes-256-gcm" />
-                    <el-option label="aes-128-gcm" value="aes-128-gcm" />
-                  </template>
-                </el-select>
-              </el-form-item>
-              <el-form-item label="Password" prop="ssPassword">
-                <el-input
-                  v-model="formState.ssPassword"
-                  show-password
-                  :placeholder="canReuseExistingSSSecret ? 'Leave blank to keep existing' : ''"
-                />
-              </el-form-item>
+              <div class="compact-field">
+                <span class="compact-label required">Cipher</span>
+                <el-form-item prop="ssMethod" class="compact-form-item">
+                  <el-select v-model="formState.ssMethod">
+                    <template v-if="isSingSSTarget">
+                      <el-option
+                        v-for="method in SING_SS_METHODS"
+                        :key="method"
+                        :label="method"
+                        :value="method"
+                      />
+                    </template>
+                    <template v-else>
+                      <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
+                      <el-option label="aes-256-gcm" value="aes-256-gcm" />
+                      <el-option label="aes-128-gcm" value="aes-128-gcm" />
+                    </template>
+                  </el-select>
+                </el-form-item>
+              </div>
+              <div class="compact-field">
+                <span class="compact-label required">Password</span>
+                <el-form-item prop="ssPassword" class="compact-form-item">
+                  <el-input
+                    v-model="formState.ssPassword"
+                    show-password
+                    :placeholder="canReuseExistingSSSecret ? 'Leave blank to keep existing' : ''"
+                  />
+                </el-form-item>
+              </div>
             </div>
             <div v-if="isSingSSTarget && formState.protocol === 'tcp'" class="form-row-2">
-              <el-form-item label="UDP over TCP">
-                <div class="inline-switch">
-                  <el-switch v-model="formState.uotEnabled" />
-                  <span class="inline-switch-label">
-                    {{ formState.uotEnabled ? 'Enabled' : 'Disabled' }}
-                  </span>
-                </div>
-              </el-form-item>
-              <el-form-item v-if="formState.uotEnabled" label="UOT Version">
-                <el-segmented
-                  v-model="formState.uotVersion"
-                  :options="[
-                    { label: 'v2', value: 2 },
-                    { label: 'v1', value: 1 },
-                  ]"
-                />
-              </el-form-item>
+              <div class="compact-field">
+                <span class="compact-label">UDP over TCP</span>
+                <el-form-item class="compact-form-item">
+                  <div class="inline-switch">
+                    <el-switch v-model="formState.uotEnabled" />
+                    <span class="inline-switch-label">
+                      {{ formState.uotEnabled ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </div>
+                </el-form-item>
+              </div>
+              <div v-if="formState.uotEnabled" class="compact-field">
+                <span class="compact-label">UOT Version</span>
+                <el-form-item class="compact-form-item">
+                  <el-segmented
+                    v-model="formState.uotVersion"
+                    :options="[
+                      { label: 'v2', value: 2 },
+                      { label: 'v1', value: 1 },
+                    ]"
+                  />
+                </el-form-item>
+              </div>
             </div>
           </template>
 
@@ -722,29 +750,38 @@
               SOCKS5 is easier to fingerprint than Shadowsocks. Prefer SS unless you specifically need it.
             </div>
             <div class="form-row-2">
-              <el-form-item label="Authentication">
-                <div class="inline-switch">
-                  <el-switch v-model="formState.socks5Auth" />
-                  <span class="inline-switch-label">
-                    {{ formState.socks5Auth ? 'Require credentials' : 'No authentication' }}
-                  </span>
-                </div>
-              </el-form-item>
+              <div class="compact-field compact-field-full">
+                <span class="compact-label">Authentication</span>
+                <el-form-item class="compact-form-item">
+                  <div class="inline-switch">
+                    <el-switch v-model="formState.socks5Auth" />
+                    <span class="inline-switch-label">
+                      {{ formState.socks5Auth ? 'Require credentials' : 'No authentication' }}
+                    </span>
+                  </div>
+                </el-form-item>
+              </div>
             </div>
             <div v-if="formState.socks5Auth" class="form-row-2">
-              <el-form-item label="Username" prop="socks5User">
-                <el-input
-                  v-model="formState.socks5User"
-                  :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
-                />
-              </el-form-item>
-              <el-form-item label="Password" prop="socks5Pass">
-                <el-input
-                  v-model="formState.socks5Pass"
-                  show-password
-                  :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
-                />
-              </el-form-item>
+              <div class="compact-field">
+                <span class="compact-label required">Username</span>
+                <el-form-item prop="socks5User" class="compact-form-item">
+                  <el-input
+                    v-model="formState.socks5User"
+                    :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+                  />
+                </el-form-item>
+              </div>
+              <div class="compact-field">
+                <span class="compact-label required">Password</span>
+                <el-form-item prop="socks5Pass" class="compact-form-item">
+                  <el-input
+                    v-model="formState.socks5Pass"
+                    show-password
+                    :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+                  />
+                </el-form-item>
+              </div>
             </div>
           </template>
         </section>
@@ -758,26 +795,32 @@
             </div>
           </div>
           <div class="form-row-2">
-            <el-form-item label="Remark" prop="remark">
-              <el-input v-model="formState.remark" maxlength="256" placeholder="Optional note" />
-            </el-form-item>
-            <el-form-item label="Validity" prop="validityValue">
-              <div class="validity-row">
-                <el-input-number
-                  v-model="formState.validityValue"
-                  :min="1"
-                  :max="3650"
-                  controls-position="right"
-                  class="full-width"
-                  :disabled="formState.validityUnit === 'permanent'"
-                />
-                <el-select v-model="formState.validityUnit" class="validity-unit-select">
-                  <el-option label="Permanent" value="permanent" />
-                  <el-option label="Hours" value="h" />
-                  <el-option label="Days" value="d" />
-                </el-select>
-              </div>
-            </el-form-item>
+            <div class="compact-field">
+              <span class="compact-label">Remark</span>
+              <el-form-item prop="remark" class="compact-form-item">
+                <el-input v-model="formState.remark" maxlength="256" placeholder="Optional note" />
+              </el-form-item>
+            </div>
+            <div class="compact-field">
+              <span class="compact-label">Validity</span>
+              <el-form-item prop="validityValue" class="compact-form-item">
+                <div class="validity-row">
+                  <el-input-number
+                    v-model="formState.validityValue"
+                    :min="1"
+                    :max="3650"
+                    controls-position="right"
+                    class="full-width"
+                    :disabled="formState.validityUnit === 'permanent'"
+                  />
+                  <el-select v-model="formState.validityUnit" class="validity-unit-select">
+                    <el-option label="Permanent" value="permanent" />
+                    <el-option label="Hours" value="h" />
+                    <el-option label="Days" value="d" />
+                  </el-select>
+                </div>
+              </el-form-item>
+            </div>
           </div>
         </section>
       </el-form>
@@ -1304,6 +1347,19 @@ const formatTargetTypeLabel = (targetType?: GatewayTargetType) => {
       return 'SOCKS5'
     default:
       return 'Direct'
+  }
+}
+
+const formatTargetTypeDescription = (targetType?: GatewayTargetType) => {
+  switch (targetType || 'direct') {
+    case 'ss_proxy':
+      return 'Existing go-shadowsocks2 embedded service.'
+    case 'sing_ss_proxy':
+      return 'Mihomo-compatible Shadowsocks with optional UDP-over-TCP.'
+    case 'socks5_proxy':
+      return 'Embedded SOCKS5 service on frpc.'
+    default:
+      return 'Forward to host:port on the client side.'
   }
 }
 
@@ -2396,8 +2452,7 @@ onMounted(() => {
 }
 
 .route-node,
-.status-panel,
-.selected-client-card {
+.status-panel {
   min-width: 0;
   padding: 14px 16px;
   border-radius: 14px;
@@ -2501,15 +2556,15 @@ onMounted(() => {
 .gateway-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding-top: 2px;
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px 2px;
+  gap: 8px;
+  padding: 12px 16px;
   border: 1px solid var(--el-border-color-extra-light);
   border-radius: 16px;
   background: linear-gradient(180deg, var(--el-fill-color-extra-light), var(--el-bg-color));
@@ -2519,7 +2574,6 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin-bottom: 2px;
 }
 
 .form-section-kicker {
@@ -2553,7 +2607,50 @@ onMounted(() => {
 .form-row-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 14px;
+  gap: 8px 14px;
+}
+
+.compact-row {
+  grid-template-rows: auto auto;
+}
+
+.compact-field {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.compact-field-full {
+  grid-column: 1 / -1;
+}
+
+.compact-label {
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.compact-label.required::before {
+  content: "*";
+  margin-right: 4px;
+  color: var(--el-color-danger);
+}
+
+.compact-form-item {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.compact-form-item :deep(.el-form-item__content) {
+  min-width: 0;
+}
+
+.compact-form-item :deep(.el-form-item__error) {
+  position: static;
+  margin-top: 2px;
 }
 
 .seg-control {
@@ -2595,49 +2692,56 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.target-mode-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+.target-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   width: 100%;
 }
 
-.target-mode-card {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-height: 76px;
-  padding: 12px 14px;
-  border-radius: 14px;
+.target-pill {
+  min-width: 108px;
+  padding: 7px 14px;
+  border-radius: 999px;
   border: 1px solid var(--el-border-color-light);
   background: var(--el-bg-color);
-  color: inherit;
-  text-align: left;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
-.target-mode-card:hover {
+.target-pill:hover {
   border-color: var(--el-color-primary-light-5);
   background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
 }
 
-.target-mode-card.active {
+.target-pill.active {
   border-color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
   box-shadow: 0 0 0 1px var(--el-color-primary-light-7) inset;
 }
 
-.target-mode-title {
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--el-text-color-primary);
-}
-
-.target-mode-desc {
+.target-mode-note {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(64, 158, 255, 0.06);
+  border: 1px solid rgba(64, 158, 255, 0.14);
   color: var(--el-text-color-secondary);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
+}
+
+.target-mode-note strong {
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .form-callout {
@@ -2676,12 +2780,15 @@ onMounted(() => {
   width: 100%;
 }
 
-.selected-client-card {
+.client-select-row {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 12px 14px;
-  background: var(--el-bg-color);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.client-state-tag {
+  flex-shrink: 0;
 }
 
 .client-option {
@@ -2722,9 +2829,14 @@ code {
 
   .tunnel-card-body,
   .snapshot-list,
-  .form-row-2,
-  .target-mode-grid {
+  .form-row-2 {
     grid-template-columns: 1fr;
+  }
+
+  .compact-field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    align-items: stretch;
   }
 
   .route-flow {
