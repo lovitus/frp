@@ -183,6 +183,163 @@ func TestGatewayTunnelManagerUpdateDisablingSocks5AuthClearsStoredCredentials(t 
 	require.Empty(t, updated.Socks5Pass)
 }
 
+func TestNormalizeGatewayTunnelAcceptsSingSSProxyAndNormalizesUOT(t *testing.T) {
+	t.Parallel()
+
+	tunnel, err := normalizeGatewayTunnel(GatewayTunnel{
+		Name:       "sing",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6007,
+		ClientKey:  "client-a",
+		TargetType: gatewaypkg.TargetTypeSingSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		UOTEnabled: true,
+	}, true, nil)
+	require.NoError(t, err)
+	require.Equal(t, gatewaypkg.TargetTypeSingSSProxy, tunnel.TargetType)
+	require.True(t, tunnel.UOTEnabled)
+	require.Equal(t, 2, tunnel.UOTVersion)
+	require.Empty(t, tunnel.TargetHost)
+	require.Zero(t, tunnel.TargetPort)
+
+	udpTunnel, err := normalizeGatewayTunnel(GatewayTunnel{
+		Name:       "sing-udp",
+		Protocol:   "udp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6008,
+		ClientKey:  "client-a",
+		TargetType: gatewaypkg.TargetTypeSingSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		UOTEnabled: true,
+		UOTVersion: 1,
+	}, true, nil)
+	require.NoError(t, err)
+	require.False(t, udpTunnel.UOTEnabled)
+	require.Zero(t, udpTunnel.UOTVersion)
+}
+
+func TestGatewayTunnelManagerMarksSingSSUnsupportedAndFiltersSync(t *testing.T) {
+	t.Parallel()
+
+	clientInfo := registry.ClientInfo{
+		Key:                 "client-a",
+		AllowGatewayTunnels: true,
+		Online:              true,
+		Metas:               map[string]string{},
+	}
+	var sent *msg.GatewayTunnelsSync
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return clientInfo, true },
+		func(clientKey string, message msg.Message) error {
+			require.Equal(t, "client-a", clientKey)
+			syncMsg, ok := message.(*msg.GatewayTunnelsSync)
+			require.True(t, ok)
+			sent = syncMsg
+			return nil
+		},
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:       "sing",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6009,
+		ClientKey:  "client-a",
+		TargetType: gatewaypkg.TargetTypeSingSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		UOTEnabled: true,
+		UOTVersion: 2,
+	})
+	require.NoError(t, err)
+
+	manager.RefreshStatus(context.Background(), nil)
+	current, ok := manager.Get(created.ID)
+	require.True(t, ok)
+	require.Equal(t, gatewaypkg.StatusClientUnsupported, current.Status)
+	require.Equal(t, "client does not support sing_ss_proxy", current.Message)
+	require.NotNil(t, sent)
+	require.Empty(t, sent.Tunnels)
+
+	clientInfo.Metas[gatewaypkg.CapabilityGatewaySingSSProxy] = "true"
+	require.NoError(t, manager.SyncClient("client-a"))
+	require.Len(t, sent.Tunnels, 1)
+	require.Equal(t, gatewaypkg.TargetTypeSingSSProxy, sent.Tunnels[0].TargetType)
+	require.True(t, sent.Tunnels[0].UOTEnabled)
+	require.Equal(t, 2, sent.Tunnels[0].UOTVersion)
+}
+
+func TestGatewayTunnelManagerNormalizesSingSSTargetType(t *testing.T) {
+	t.Parallel()
+
+	tunnel, err := normalizeGatewayTunnel(GatewayTunnel{
+		Name:       "sing",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6011,
+		ClientKey:  "client-a",
+		TargetType: "SING_SS_PROXY",
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+	}, true, nil)
+	require.NoError(t, err)
+	require.Equal(t, gatewaypkg.TargetTypeSingSSProxy, tunnel.TargetType)
+}
+
+func TestGatewayTunnelManagerHandleClientConnectedClearsSingSSUnsupported(t *testing.T) {
+	t.Parallel()
+
+	clientInfo := registry.ClientInfo{
+		Key:                 "client-a",
+		AllowGatewayTunnels: true,
+		Online:              true,
+		Metas:               map[string]string{},
+	}
+	var sent *msg.GatewayTunnelsSync
+	manager := NewGatewayTunnelManager(
+		func(string) (registry.ClientInfo, bool) { return clientInfo, true },
+		func(clientKey string, message msg.Message) error {
+			require.Equal(t, "client-a", clientKey)
+			syncMsg, ok := message.(*msg.GatewayTunnelsSync)
+			require.True(t, ok)
+			sent = syncMsg
+			return nil
+		},
+	)
+	created, err := manager.Create(GatewayTunnel{
+		Name:       "sing",
+		Protocol:   "tcp",
+		BindAddr:   "127.0.0.1",
+		ListenPort: 6010,
+		ClientKey:  "client-a",
+		TargetType: gatewaypkg.TargetTypeSingSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		UOTEnabled: true,
+		UOTVersion: 2,
+	})
+	require.NoError(t, err)
+
+	manager.RefreshStatus(context.Background(), nil)
+	current, ok := manager.Get(created.ID)
+	require.True(t, ok)
+	require.Equal(t, gatewaypkg.StatusClientUnsupported, current.Status)
+	require.Equal(t, "client does not support sing_ss_proxy", current.Message)
+
+	clientInfo.Metas[gatewaypkg.CapabilityGatewaySingSSProxy] = "true"
+	manager.HandleClientConnected("client-a")
+
+	current, ok = manager.Get(created.ID)
+	require.True(t, ok)
+	require.Equal(t, gatewaypkg.StatusPending, current.Status)
+	require.Empty(t, current.Message)
+	require.NotNil(t, sent)
+	require.Len(t, sent.Tunnels, 1)
+	require.Equal(t, created.ID, sent.Tunnels[0].ID)
+}
+
 func TestGatewayTunnelManagerRefreshStatusMarksOfflineAndDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -239,6 +396,93 @@ func TestGatewayTunnelManagerRefreshStatusMarksOfflineAndDisabled(t *testing.T) 
 	require.True(t, ok)
 	require.Equal(t, gatewaypkg.StatusDisabled, disabledCurrent.Status)
 	require.Equal(t, "client does not allow gateway tunnels", disabledCurrent.Message)
+}
+
+func TestGatewayTunnelManagerRefreshStatusPrioritizesExpiredOverClientState(t *testing.T) {
+	t.Parallel()
+
+	clientInfo := map[string]registry.ClientInfo{
+		"offline-client": {
+			Key:                 "offline-client",
+			AllowGatewayTunnels: true,
+			Online:              false,
+		},
+		"disabled-client": {
+			Key:                 "disabled-client",
+			AllowGatewayTunnels: false,
+			Online:              true,
+		},
+		"unsupported-client": {
+			Key:                 "unsupported-client",
+			AllowGatewayTunnels: true,
+			Online:              true,
+			Metas:               map[string]string{},
+		},
+	}
+	var syncedClients []string
+	manager := NewGatewayTunnelManager(
+		func(clientKey string) (registry.ClientInfo, bool) {
+			info, ok := clientInfo[clientKey]
+			return info, ok
+		},
+		func(clientKey string, message msg.Message) error {
+			syncMsg, ok := message.(*msg.GatewayTunnelsSync)
+			require.True(t, ok)
+			require.Empty(t, syncMsg.Tunnels)
+			syncedClients = append(syncedClients, clientKey)
+			return nil
+		},
+	)
+
+	cases := []struct {
+		name       string
+		clientKey  string
+		targetType string
+		method     string
+		password   string
+	}{
+		{
+			name:      "offline",
+			clientKey: "offline-client",
+		},
+		{
+			name:      "disabled",
+			clientKey: "disabled-client",
+		},
+		{
+			name:       "unsupported",
+			clientKey:  "unsupported-client",
+			targetType: gatewaypkg.TargetTypeSingSSProxy,
+			method:     "chacha20-ietf-poly1305",
+			password:   "secret",
+		},
+	}
+
+	for i, tc := range cases {
+		created, err := manager.Create(GatewayTunnel{
+			Name:       tc.name,
+			Protocol:   "tcp",
+			ListenPort: 6020 + i,
+			ClientKey:  tc.clientKey,
+			TargetType: tc.targetType,
+			TargetHost: "127.0.0.1",
+			TargetPort: 8080 + i,
+			SSMethod:   tc.method,
+			SSPassword: tc.password,
+		})
+		require.NoError(t, err)
+		manager.mu.Lock()
+		manager.tunnels[created.ID].ExpiresAt = time.Now().Add(-time.Second)
+		manager.mu.Unlock()
+	}
+
+	manager.RefreshStatus(context.Background(), nil)
+
+	for _, tunnel := range manager.List() {
+		require.Equal(t, gatewaypkg.StatusExpired, tunnel.Status)
+		require.NotEmpty(t, tunnel.Message)
+	}
+	require.Equal(t, []string{"unsupported-client"}, syncedClients)
 }
 
 func TestGatewayTunnelManagerHandleStatusResponseUpdatesTunnel(t *testing.T) {

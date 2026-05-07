@@ -78,6 +78,8 @@ type gatewayTunnelYAML struct {
 	TargetPort    int    `json:"targetPort" yaml:"targetPort"`
 	SSMethod      string `json:"ssMethod,omitempty" yaml:"ssMethod,omitempty"`
 	SSPassword    string `json:"ssPassword,omitempty" yaml:"ssPassword,omitempty"`
+	UOTEnabled    bool   `json:"uotEnabled,omitempty" yaml:"uotEnabled,omitempty"`
+	UOTVersion    int    `json:"uotVersion,omitempty" yaml:"uotVersion,omitempty"`
 	Socks5Auth    bool   `json:"socks5Auth,omitempty" yaml:"socks5Auth,omitempty"`
 	Socks5User    string `json:"socks5User,omitempty" yaml:"socks5User,omitempty"`
 	Socks5Pass    string `json:"socks5Pass,omitempty" yaml:"socks5Pass,omitempty"`
@@ -447,6 +449,8 @@ func (c *Controller) APIGatewayTunnelExport(ctx *httppkg.Context) (any, error) {
 			TargetPort:    item.TargetPort,
 			SSMethod:      item.SSMethod,
 			SSPassword:    item.SSPassword,
+			UOTEnabled:    item.UOTEnabled,
+			UOTVersion:    item.UOTVersion,
 			Socks5Auth:    item.Socks5Auth,
 			Socks5User:    item.Socks5User,
 			Socks5Pass:    item.Socks5Pass,
@@ -521,6 +525,8 @@ func (c *Controller) APIGatewayTunnelImport(ctx *httppkg.Context) (any, error) {
 			TargetPort:    item.TargetPort,
 			SSMethod:      strings.TrimSpace(item.SSMethod),
 			SSPassword:    strings.TrimSpace(item.SSPassword),
+			UOTEnabled:    item.UOTEnabled,
+			UOTVersion:    item.UOTVersion,
 			Socks5Auth:    item.Socks5Auth,
 			Socks5User:    strings.TrimSpace(item.Socks5User),
 			Socks5Pass:    strings.TrimSpace(item.Socks5Pass),
@@ -615,6 +621,10 @@ func (c *Controller) validateGatewayTunnelClient(tunnel gatewaypkg.Tunnel) error
 		if !client.AllowGatewayTunnels {
 			return httppkg.NewError(http.StatusBadRequest, "selected gateway client does not allow gateway tunnels")
 		}
+		targetType := strings.ToLower(strings.TrimSpace(tunnel.TargetType))
+		if targetType == gatewaypkg.TargetTypeSingSSProxy && client.Metas[gatewaypkg.CapabilityGatewaySingSSProxy] != "true" {
+			return httppkg.NewError(http.StatusBadRequest, "selected gateway client does not support sing_ss_proxy")
+		}
 	}
 	return nil
 }
@@ -622,6 +632,14 @@ func (c *Controller) validateGatewayTunnelClient(tunnel gatewaypkg.Tunnel) error
 func (c *Controller) validateGatewayTunnelImportPayload(tunnel gatewaypkg.Tunnel) error {
 	if strings.TrimSpace(tunnel.ClientKey) == "" {
 		return fmt.Errorf("clientKey is required")
+	}
+	targetType := strings.ToLower(strings.TrimSpace(tunnel.TargetType))
+	if c.clientRegistry != nil && targetType == gatewaypkg.TargetTypeSingSSProxy {
+		if client, ok := c.clientRegistry.GetByKey(strings.TrimSpace(tunnel.ClientKey)); ok &&
+			client.Online &&
+			client.Metas[gatewaypkg.CapabilityGatewaySingSSProxy] != "true" {
+			return fmt.Errorf("selected gateway client does not support sing_ss_proxy")
+		}
 	}
 	// Import is designed for restore/idempotent replay. Unknown/offline client keys
 	// are accepted and will stay pending until a matching client appears.

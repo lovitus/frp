@@ -13,6 +13,7 @@ Each tunnel defines:
 - a listener on frps: `bindAddr:listenPort`
 - the selected gateway client
 - the final destination on that client side: `targetHost:targetPort`
+- or an embedded client-side proxy target such as `ss_proxy`, `sing_ss_proxy`, or `socks5_proxy`
 
 frps keeps the desired runtime definition in memory and synchronizes it to the selected client over the existing control channel. frpc then materializes it as a normal runtime proxy.
 
@@ -53,6 +54,9 @@ Each tunnel includes:
 - `gatewayClient`
 - `targetHost`: defaults to `127.0.0.1`
 - `targetPort`
+- `targetType`: `direct`, `ss_proxy`, `sing_ss_proxy`, or `socks5_proxy`
+- `ssMethod` / `ssPassword` for Shadowsocks targets
+- `uotEnabled` / `uotVersion` for `sing_ss_proxy` TCP UDP-over-TCP
 - `status`
 
 The page is optimized for dense operation:
@@ -71,6 +75,7 @@ The page also includes YAML import/export:
 
 - `Export YAML` returns the current runtime gateway tunnel set as YAML text.
 - `Import YAML` accepts pasted YAML text or a browser-selected local file.
+- Exported YAML includes proxy secrets such as `ssPassword` and `socks5Pass` in plaintext.
 - Import performs upsert by `clientKey + name` (update if existing, create if missing).
 - Import is idempotent for replay: importing the same YAML again updates existing items instead of failing on duplicates.
 - Import accepts unknown/offline `clientKey` entries so restore can happen before clients reconnect; those tunnels stay pending until a matching client appears.
@@ -97,6 +102,7 @@ The current runtime status can be one of:
 - `online`
 - `client-offline`
 - `disabled`
+- `client-unsupported`
 - `invalid-config`
 - `apply-failed`
 - `register-failed`
@@ -105,7 +111,24 @@ The current runtime status can be one of:
 
 `online` means the runtime proxy has been registered successfully on frps and the client-side target check also passed.
 
+`client-unsupported` means the selected client is online and allows gateway tunnels, but its login metadata does not advertise the capability needed by the tunnel target type.
+
 For UDP, status is still best-effort. The feature reuses the existing frp UDP proxy path and does not add a special lifecycle manager beyond normal runtime proxy handling.
+
+## Embedded Proxy Targets
+
+`ss_proxy` keeps the existing go-shadowsocks2 implementation unchanged.
+
+`sing_ss_proxy` is a separate Shadowsocks target implemented with `github.com/sagernet/sing-shadowsocks`. It is intended for Mihomo-style Shadowsocks configuration:
+
+- Mihomo `cipher` maps to `ssMethod`.
+- Mihomo `password` maps to `ssPassword`.
+- `protocol = tcp` exposes a TCP Shadowsocks service on the gateway client.
+- `protocol = udp` exposes a UDP Shadowsocks service on the gateway client.
+- `protocol = tcp` plus `uotEnabled = true` enables UDP-over-TCP. `uotVersion` accepts `1` or `2` and defaults to `2`.
+- `2022-*` methods require a base64 PSK with the length expected by sing-shadowsocks. The server validates this as a PSK and does not convert normal passwords automatically.
+
+`sing_ss_proxy` requires a new enough frpc that logs in with `gateway_sing_ss_proxy=true`. frps rejects create/update requests for online clients without this capability and does not sync existing `sing_ss_proxy` tunnels to clients that reconnect without it.
 
 ## Persistence Model
 

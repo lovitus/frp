@@ -34,6 +34,7 @@ import (
 	"github.com/fatedier/frp/pkg/config"
 	"github.com/fatedier/frp/pkg/config/source"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
+	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/policy/security"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
@@ -66,6 +67,15 @@ func (e cancelErr) Error() string {
 type mixLoginReporter interface {
 	ReportLoginSuccess()
 	ReportLoginFailure(error)
+}
+
+func gatewayLoginMetas(src map[string]string) map[string]string {
+	metas := make(map[string]string, len(src)+1)
+	for key, value := range src {
+		metas[key] = value
+	}
+	metas[gatewaypkg.CapabilityGatewaySingSSProxy] = "true"
+	return metas
 }
 
 // ServiceOptions contains options for creating a new client service.
@@ -390,7 +400,7 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 		Version:             version.Full(),
 		Timestamp:           time.Now().Unix(),
 		RunID:               svr.runID,
-		Metas:               svr.common.Metadatas,
+		Metas:               gatewayLoginMetas(svr.common.Metadatas),
 		AllowGatewayTunnels: lo.FromPtr(svr.common.AllowGatewayTunnels),
 	}
 	if connectorWithProtocol, ok := connector.(interface{ SelectedProtocol() string }); ok {
@@ -541,7 +551,7 @@ func (svr *Service) probeMixProtocolLogin(ctx context.Context, candidate mixDial
 		Version:             version.Full(),
 		Timestamp:           time.Now().Unix(),
 		RunID:               "",
-		Metas:               svr.common.Metadatas,
+		Metas:               gatewayLoginMetas(svr.common.Metadatas),
 		SelectedProtocol:    candidate.Protocol.Protocol,
 		AllowGatewayTunnels: false,
 	}

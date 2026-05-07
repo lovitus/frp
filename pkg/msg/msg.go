@@ -214,6 +214,8 @@ type GatewayTunnelConfig struct {
 	TargetPort int    `json:"target_port,omitempty"`
 	SSMethod   string `json:"ss_method,omitempty"`
 	SSPassword string `json:"ss_password,omitempty"`
+	UOTEnabled bool   `json:"uot_enabled,omitempty"`
+	UOTVersion int    `json:"uot_version,omitempty"`
 	Socks5Auth bool   `json:"socks5_auth,omitempty"`
 	Socks5User string `json:"socks5_user,omitempty"`
 	Socks5Pass string `json:"socks5_pass,omitempty"`

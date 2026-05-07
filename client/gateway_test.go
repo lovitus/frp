@@ -203,6 +203,42 @@ func TestNormalizeGatewayTunnelConfigAcceptsSSProxy(t *testing.T) {
 	require.Equal(t, gatewaypkg.TargetTypeSSProxy, cfg.TargetType)
 }
 
+func TestNormalizeGatewayTunnelConfigAcceptsSingSSProxy(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := normalizeGatewayTunnelConfig(msg.GatewayTunnelConfig{
+		ID:         "tun-7",
+		Name:       "sing",
+		Protocol:   "tcp",
+		BindAddr:   "0.0.0.0",
+		ListenPort: 6201,
+		TargetType: gatewaypkg.TargetTypeSingSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		UOTEnabled: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, gatewaypkg.TargetTypeSingSSProxy, cfg.TargetType)
+	require.True(t, cfg.UOTEnabled)
+	require.Equal(t, 2, cfg.UOTVersion)
+
+	udpCfg, err := normalizeGatewayTunnelConfig(msg.GatewayTunnelConfig{
+		ID:         "tun-8",
+		Name:       "sing-udp",
+		Protocol:   "udp",
+		BindAddr:   "0.0.0.0",
+		ListenPort: 6202,
+		TargetType: gatewaypkg.TargetTypeSingSSProxy,
+		SSMethod:   "chacha20-ietf-poly1305",
+		SSPassword: "secret",
+		UOTEnabled: true,
+		UOTVersion: 1,
+	})
+	require.NoError(t, err)
+	require.False(t, udpCfg.UOTEnabled)
+	require.Zero(t, udpCfg.UOTVersion)
+}
+
 func TestApplyGatewayTunnelsRollsBackRuntimeSourceOnReloadFailure(t *testing.T) {
 	t.Parallel()
 

@@ -138,6 +138,8 @@ func (m *GatewayTunnelManager) Update(id string, tunnel GatewayTunnel) (GatewayT
 	current.TargetType = normalized.TargetType
 	current.SSMethod = normalized.SSMethod
 	current.SSPassword = normalized.SSPassword
+	current.UOTEnabled = normalized.UOTEnabled
+	current.UOTVersion = normalized.UOTVersion
 	current.Socks5Auth = normalized.Socks5Auth
 	current.Socks5User = normalized.Socks5User
 	current.Socks5Pass = normalized.Socks5Pass
@@ -209,17 +211,31 @@ func (m *GatewayTunnelManager) RefreshStatus(ctx context.Context, tunnelIDs []st
 
 	var wg sync.WaitGroup
 	for clientKey, ids := range grouped {
+		activeIDs, expiredChanged := m.markExpiredAndCollectActiveIDs(clientKey, ids)
+		if len(activeIDs) == 0 {
+			if expiredChanged {
+				if clientInfo, ok := m.lookupClient(clientKey); ok && clientInfo.Online && clientInfo.AllowGatewayTunnels {
+					_ = m.SyncClient(clientKey)
+				}
+			}
+			continue
+		}
+
 		clientInfo, ok := m.lookupClient(clientKey)
 		if !ok || !clientInfo.Online {
-			m.setClientStatus(clientKey, ids, gatewaypkg.StatusClientOffline, "client is offline")
+			m.setClientStatus(clientKey, activeIDs, gatewaypkg.StatusClientOffline, "client is offline")
 			continue
 		}
 		if !clientInfo.AllowGatewayTunnels {
-			m.setClientStatus(clientKey, ids, gatewaypkg.StatusDisabled, "client does not allow gateway tunnels")
+			m.setClientStatus(clientKey, activeIDs, gatewaypkg.StatusDisabled, "client does not allow gateway tunnels")
 			continue
 		}
-		activeIDs, expiredChanged := m.markExpiredAndCollectActiveIDs(clientKey, ids)
 		if expiredChanged {
+			_ = m.SyncClient(clientKey)
+		}
+		activeIDs, unsupportedIDs := m.partitionUnsupportedSingSSIDs(clientInfo, clientKey, activeIDs)
+		if len(unsupportedIDs) > 0 {
+			m.setClientStatus(clientKey, unsupportedIDs, gatewaypkg.StatusClientUnsupported, "client does not support sing_ss_proxy")
 			_ = m.SyncClient(clientKey)
 		}
 		if len(activeIDs) == 0 {
@@ -236,6 +252,15 @@ func (m *GatewayTunnelManager) RefreshStatus(ctx context.Context, tunnelIDs []st
 }
 
 func (m *GatewayTunnelManager) HandleClientConnected(clientKey string) {
+	if clientInfo, ok := m.lookupClient(clientKey); ok && clientInfo.Online && clientInfo.AllowGatewayTunnels {
+		supportedIDs, unsupportedIDs := m.partitionUnsupportedSingSSIDs(clientInfo, clientKey, nil)
+		if len(supportedIDs) > 0 {
+			m.setClientStatus(clientKey, supportedIDs, gatewaypkg.StatusPending, "")
+		}
+		if len(unsupportedIDs) > 0 {
+			m.setClientStatus(clientKey, unsupportedIDs, gatewaypkg.StatusClientUnsupported, "client does not support sing_ss_proxy")
+		}
+	}
 	if err := m.SyncClient(clientKey); err != nil {
 		m.setClientStatus(clientKey, nil, gatewaypkg.StatusPending, err.Error())
 	}
@@ -363,6 +388,7 @@ func (m *GatewayTunnelManager) groupTunnelIDsByClient(tunnelIDs []string) map[st
 }
 
 func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.GatewayTunnelConfig {
+	clientInfo, hasClientInfo := m.lookupClient(clientKey)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -372,6 +398,10 @@ func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.
 			continue
 		}
 		if isTunnelExpired(tunnel, time.Now()) {
+			continue
+		}
+		if tunnel.TargetType == gatewaypkg.TargetTypeSingSSProxy &&
+			hasClientInfo && !clientSupportsGatewaySingSSProxy(clientInfo) {
 			continue
 		}
 		items = append(items, msg.GatewayTunnelConfig{
@@ -386,6 +416,8 @@ func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.
 			TargetPort: tunnel.TargetPort,
 			SSMethod:   tunnel.SSMethod,
 			SSPassword: tunnel.SSPassword,
+			UOTEnabled: tunnel.UOTEnabled,
+			UOTVersion: tunnel.UOTVersion,
 			Socks5Auth: tunnel.Socks5Auth,
 			Socks5User: tunnel.Socks5User,
 			Socks5Pass: tunnel.Socks5Pass,
@@ -396,6 +428,46 @@ func (m *GatewayTunnelManager) listWireConfigsForClient(clientKey string) []msg.
 		return items[i].Name < items[j].Name
 	})
 	return items
+}
+
+func (m *GatewayTunnelManager) partitionUnsupportedSingSSIDs(
+	clientInfo registry.ClientInfo,
+	clientKey string,
+	ids []string,
+) ([]string, []string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	allowed := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		allowed[id] = struct{}{}
+	}
+	supported := make([]string, 0)
+	unsupported := make([]string, 0)
+	supportsSingSS := clientSupportsGatewaySingSSProxy(clientInfo)
+	for _, tunnel := range m.tunnels {
+		if tunnel.ClientKey != clientKey {
+			continue
+		}
+		if len(allowed) > 0 {
+			if _, ok := allowed[tunnel.ID]; !ok {
+				continue
+			}
+		}
+		if isTunnelExpired(tunnel, time.Now()) {
+			continue
+		}
+		if tunnel.TargetType == gatewaypkg.TargetTypeSingSSProxy && !supportsSingSS {
+			unsupported = append(unsupported, tunnel.ID)
+			continue
+		}
+		supported = append(supported, tunnel.ID)
+	}
+	return supported, unsupported
+}
+
+func clientSupportsGatewaySingSSProxy(clientInfo registry.ClientInfo) bool {
+	return clientInfo.Metas[gatewaypkg.CapabilityGatewaySingSSProxy] == "true"
 }
 
 func (m *GatewayTunnelManager) setClientStatus(clientKey string, ids []string, status, message string) {
@@ -520,6 +592,8 @@ func normalizeGatewayTunnel(tunnel GatewayTunnel, isCreate bool, current *Gatewa
 	case gatewaypkg.TargetTypeDirect:
 		tunnel.SSMethod = ""
 		tunnel.SSPassword = ""
+		tunnel.UOTEnabled = false
+		tunnel.UOTVersion = 0
 		tunnel.Socks5Auth = false
 		tunnel.Socks5User = ""
 		tunnel.Socks5Pass = ""
@@ -535,6 +609,8 @@ func normalizeGatewayTunnel(tunnel GatewayTunnel, isCreate bool, current *Gatewa
 	case gatewaypkg.TargetTypeSSProxy:
 		tunnel.TargetHost = ""
 		tunnel.TargetPort = 0
+		tunnel.UOTEnabled = false
+		tunnel.UOTVersion = 0
 		tunnel.Socks5Auth = false
 		tunnel.Socks5User = ""
 		tunnel.Socks5Pass = ""
@@ -550,11 +626,44 @@ func normalizeGatewayTunnel(tunnel GatewayTunnel, isCreate bool, current *Gatewa
 		if err := validateGatewaySSMethod(tunnel.Protocol, tunnel.SSMethod, tunnel.SSPassword); err != nil {
 			return tunnel, err
 		}
+	case gatewaypkg.TargetTypeSingSSProxy:
+		tunnel.TargetHost = ""
+		tunnel.TargetPort = 0
+		tunnel.Socks5Auth = false
+		tunnel.Socks5User = ""
+		tunnel.Socks5Pass = ""
+		if current != nil && current.TargetType == gatewaypkg.TargetTypeSingSSProxy && tunnel.SSPassword == "" {
+			tunnel.SSPassword = current.SSPassword
+		}
+		if tunnel.SSMethod == "" {
+			return tunnel, fmt.Errorf("ssMethod is required for sing_ss_proxy")
+		}
+		if tunnel.SSPassword == "" {
+			return tunnel, fmt.Errorf("ssPassword is required for sing_ss_proxy")
+		}
+		if tunnel.Protocol == "udp" {
+			tunnel.UOTEnabled = false
+			tunnel.UOTVersion = 0
+		} else if tunnel.UOTEnabled {
+			if tunnel.UOTVersion == 0 {
+				tunnel.UOTVersion = 2
+			}
+			if tunnel.UOTVersion != 1 && tunnel.UOTVersion != 2 {
+				return tunnel, fmt.Errorf("uotVersion must be 1 or 2")
+			}
+		} else {
+			tunnel.UOTVersion = 0
+		}
+		if err := gatewaypkg.ValidateGatewaySingSSMethod(tunnel.Protocol, tunnel.SSMethod, tunnel.SSPassword); err != nil {
+			return tunnel, err
+		}
 	case gatewaypkg.TargetTypeSocks5Proxy:
 		tunnel.TargetHost = ""
 		tunnel.TargetPort = 0
 		tunnel.SSMethod = ""
 		tunnel.SSPassword = ""
+		tunnel.UOTEnabled = false
+		tunnel.UOTVersion = 0
 		if current != nil && current.TargetType == gatewaypkg.TargetTypeSocks5Proxy {
 			if tunnel.Socks5User == "" {
 				tunnel.Socks5User = current.Socks5User

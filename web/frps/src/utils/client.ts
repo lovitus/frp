@@ -98,6 +98,10 @@ export class Client {
     return arr
   }
 
+  get supportsGatewaySingSSProxy(): boolean {
+    return this.metas.get('gateway_sing_ss_proxy') === 'true'
+  }
+
   matchesFilter(searchText: string): boolean {
     const search = searchText.toLowerCase()
     return (

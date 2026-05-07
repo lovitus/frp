@@ -342,6 +342,8 @@ func normalizeGatewayTunnelConfig(cfg msg.GatewayTunnelConfig) (msg.GatewayTunne
 	case gatewaypkg.TargetTypeDirect:
 		cfg.SSMethod = ""
 		cfg.SSPassword = ""
+		cfg.UOTEnabled = false
+		cfg.UOTVersion = 0
 		cfg.Socks5Auth = false
 		cfg.Socks5User = ""
 		cfg.Socks5Pass = ""
@@ -357,6 +359,8 @@ func normalizeGatewayTunnelConfig(cfg msg.GatewayTunnelConfig) (msg.GatewayTunne
 	case gatewaypkg.TargetTypeSSProxy:
 		cfg.TargetHost = ""
 		cfg.TargetPort = 0
+		cfg.UOTEnabled = false
+		cfg.UOTVersion = 0
 		cfg.Socks5Auth = false
 		cfg.Socks5User = ""
 		cfg.Socks5Pass = ""
@@ -369,11 +373,41 @@ func normalizeGatewayTunnelConfig(cfg msg.GatewayTunnelConfig) (msg.GatewayTunne
 		if err := validateGatewaySSMethod(cfg.Protocol, cfg.SSMethod, cfg.SSPassword); err != nil {
 			return cfg, err
 		}
+	case gatewaypkg.TargetTypeSingSSProxy:
+		cfg.TargetHost = ""
+		cfg.TargetPort = 0
+		cfg.Socks5Auth = false
+		cfg.Socks5User = ""
+		cfg.Socks5Pass = ""
+		if cfg.SSMethod == "" {
+			return cfg, fmt.Errorf("ssMethod is required for sing_ss_proxy")
+		}
+		if cfg.SSPassword == "" {
+			return cfg, fmt.Errorf("ssPassword is required for sing_ss_proxy")
+		}
+		if cfg.Protocol == "udp" {
+			cfg.UOTEnabled = false
+			cfg.UOTVersion = 0
+		} else if cfg.UOTEnabled {
+			if cfg.UOTVersion == 0 {
+				cfg.UOTVersion = 2
+			}
+			if cfg.UOTVersion != 1 && cfg.UOTVersion != 2 {
+				return cfg, fmt.Errorf("uotVersion must be 1 or 2")
+			}
+		} else {
+			cfg.UOTVersion = 0
+		}
+		if err := gatewaypkg.ValidateGatewaySingSSMethod(cfg.Protocol, cfg.SSMethod, cfg.SSPassword); err != nil {
+			return cfg, err
+		}
 	case gatewaypkg.TargetTypeSocks5Proxy:
 		cfg.TargetHost = ""
 		cfg.TargetPort = 0
 		cfg.SSMethod = ""
 		cfg.SSPassword = ""
+		cfg.UOTEnabled = false
+		cfg.UOTVersion = 0
 		if cfg.Protocol != "tcp" {
 			return cfg, fmt.Errorf("socks5_proxy currently supports tcp only")
 		}

@@ -1,5 +1,5 @@
 export type GatewayProtocol = 'tcp' | 'udp'
-export type GatewayTargetType = 'direct' | 'ss_proxy' | 'socks5_proxy'
+export type GatewayTargetType = 'direct' | 'ss_proxy' | 'sing_ss_proxy' | 'socks5_proxy'
 export type GatewayValidityUnit = 'permanent' | 'h' | 'd'
 
 export interface GatewayTunnelData {
@@ -15,6 +15,8 @@ export interface GatewayTunnelData {
   targetPort: number
   ssMethod?: string
   ssPassword?: string
+  uotEnabled?: boolean
+  uotVersion?: number
   socks5Auth?: boolean
   socks5User?: string
   socks5Pass?: string
@@ -39,6 +41,8 @@ export interface GatewayTunnelPayload {
   targetPort: number
   ssMethod?: string
   ssPassword?: string
+  uotEnabled?: boolean
+  uotVersion?: number
   socks5Auth?: boolean
   socks5User?: string
   socks5Pass?: string

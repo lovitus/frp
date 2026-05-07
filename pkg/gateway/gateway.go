@@ -17,8 +17,11 @@ const (
 	AnnotationTargetPortKey       = "frp/gateway-target-port"
 	AnnotationBindAddrKey         = "frp/gateway-bind-addr"
 
+	CapabilityGatewaySingSSProxy = "gateway_sing_ss_proxy"
+
 	TargetTypeDirect      = "direct"
 	TargetTypeSSProxy     = "ss_proxy"
+	TargetTypeSingSSProxy = "sing_ss_proxy"
 	TargetTypeSocks5Proxy = "socks5_proxy"
 
 	ValidityUnitPermanent = "permanent"
@@ -29,6 +32,7 @@ const (
 	StatusOnline            = "online"
 	StatusClientOffline     = "client-offline"
 	StatusDisabled          = "disabled"
+	StatusClientUnsupported = "client-unsupported"
 	StatusExpired           = "expired"
 	StatusInvalidConfig     = "invalid-config"
 	StatusApplyFailed       = "apply-failed"
@@ -50,6 +54,8 @@ type Tunnel struct {
 	TargetPort    int       `json:"targetPort"`
 	SSMethod      string    `json:"ssMethod,omitempty"`
 	SSPassword    string    `json:"ssPassword,omitempty"`
+	UOTEnabled    bool      `json:"uotEnabled,omitempty"`
+	UOTVersion    int       `json:"uotVersion,omitempty"`
 	Socks5Auth    bool      `json:"socks5Auth,omitempty"`
 	Socks5User    string    `json:"socks5User,omitempty"`
 	Socks5Pass    string    `json:"socks5Pass,omitempty"`

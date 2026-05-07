@@ -18,7 +18,11 @@ require (
 	github.com/prometheus/client_golang v1.19.1
 	github.com/quic-go/quic-go v0.55.0
 	github.com/rodaine/table v1.2.0
+	github.com/sagernet/sing v0.8.9
+	github.com/sagernet/sing-shadowsocks v0.2.9
 	github.com/samber/lo v1.47.0
+	github.com/shadowsocks/go-shadowsocks2 v0.1.5
+	github.com/shirou/gopsutil/v4 v4.26.2
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
@@ -33,6 +37,7 @@ require (
 	golang.org/x/time v0.5.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	gopkg.in/ini.v1 v1.67.0
+	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.28.8
 	k8s.io/client-go v0.28.8
 )
@@ -65,8 +70,6 @@ require (
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 // indirect
-	github.com/shadowsocks/go-shadowsocks2 v0.1.5 // indirect
-	github.com/shirou/gopsutil/v4 v4.26.2 // indirect
 	github.com/templexxx/cpu v0.1.1 // indirect
 	github.com/templexxx/xorsimd v0.4.3 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
@@ -84,8 +87,8 @@ require (
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2 // indirect
+	lukechampine.com/blake3 v1.4.1 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )

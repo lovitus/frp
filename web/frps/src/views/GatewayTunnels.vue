@@ -304,9 +304,12 @@
               <div class="tunnel-title-row">
                 <div class="tunnel-name">{{ row.name }}</div>
                 <div class="tunnel-tags">
-                  <el-tag size="small">{{ row.protocol.toUpperCase() }}</el-tag>
                   <el-tag size="small" :type="getStatusMeta(row.status).type">
                     {{ getStatusMeta(row.status).label }}
+                  </el-tag>
+                  <el-tag size="small">{{ row.protocol.toUpperCase() }}</el-tag>
+                  <el-tag size="small" effect="plain">
+                    {{ formatTargetTypeLabel(row.targetType) }}
                   </el-tag>
                 </div>
               </div>
@@ -337,43 +340,52 @@
             </div>
           </div>
 
-          <div class="tunnel-card-grid">
-            <section class="detail-panel">
-              <div class="detail-label">Listen</div>
-              <code class="detail-code">{{ row.bindAddr }}:{{ row.listenPort }}</code>
-              <div class="detail-meta">Public entrypoint on frps</div>
-            </section>
+          <div class="tunnel-card-body">
+            <div class="route-flow">
+              <section class="route-node route-node-listen">
+                <div class="detail-label">Listen</div>
+                <code class="detail-code">{{ row.bindAddr }}:{{ row.listenPort }}</code>
+                <div class="detail-meta">Public entrypoint on frps</div>
+              </section>
 
-            <section class="detail-panel">
-              <div class="detail-label">Gateway</div>
-              <div class="gateway-client-head">
-                <span class="gateway-client-name">
-                  {{ getClientLabel(row.clientKey) }}
-                </span>
-                <el-tag
-                  size="small"
-                  :type="getClientOnline(row.clientKey) ? 'success' : 'info'"
-                >
-                  {{ getClientOnline(row.clientKey) ? 'online' : 'offline' }}
-                </el-tag>
-              </div>
-              <div v-if="getClientSubLabel(row.clientKey)" class="detail-meta">
-                {{ getClientSubLabel(row.clientKey) }}
-              </div>
-              <div v-if="getClientMetaLine(row.clientKey)" class="detail-meta">
-                {{ getClientMetaLine(row.clientKey) }}
-              </div>
-              <div class="detail-meta">key {{ row.clientKey }}</div>
-            </section>
+              <div class="route-arrow">→</div>
 
-            <section class="detail-panel">
-              <div class="detail-label">Target</div>
-              <code class="detail-code">{{ formatTunnelTarget(row) }}</code>
-              <div class="detail-meta">{{ formatTunnelTargetMeta(row) }}</div>
-            </section>
+              <section class="route-node route-node-gateway">
+                <div class="detail-label">Gateway</div>
+                <div class="gateway-client-head">
+                  <span class="gateway-client-name">
+                    {{ getClientLabel(row.clientKey) }}
+                  </span>
+                  <el-tag
+                    size="small"
+                    :type="getClientOnline(row.clientKey) ? 'success' : 'info'"
+                  >
+                    {{ getClientOnline(row.clientKey) ? 'online' : 'offline' }}
+                  </el-tag>
+                </div>
+                <div v-if="getClientSubLabel(row.clientKey)" class="detail-meta">
+                  {{ getClientSubLabel(row.clientKey) }}
+                </div>
+                <div v-if="getClientMetaLine(row.clientKey)" class="detail-meta">
+                  {{ getClientMetaLine(row.clientKey) }}
+                </div>
+                <div class="detail-meta">key {{ row.clientKey }}</div>
+              </section>
 
-            <section class="detail-panel">
-              <div class="detail-label">Status</div>
+              <div class="route-arrow">→</div>
+
+              <section class="route-node route-node-target">
+                <div class="detail-label">Target</div>
+                <code class="detail-code">{{ formatTunnelTarget(row) }}</code>
+                <div class="detail-meta">{{ formatTunnelTargetMeta(row) }}</div>
+              </section>
+            </div>
+
+            <section class="status-panel">
+              <div class="status-panel-head">
+                <div class="detail-label">Runtime</div>
+                <span class="tunnel-updated">{{ formatUpdatedAt(row.updatedAt) }}</span>
+              </div>
               <div class="status-detail">{{ formatTunnelValidity(row) }}</div>
               <div v-if="row.remoteAddr" class="status-detail">remote {{ row.remoteAddr }}</div>
               <div v-if="row.message" class="status-message">{{ row.message }}</div>
@@ -471,7 +483,7 @@
     <BaseDialog
       v-model="dialogVisible"
       :title="editingTunnel ? 'Edit Gateway Tunnel' : 'Create Gateway Tunnel'"
-      width="720px"
+      width="780px"
       :close-on-click-modal="false"
       :append-to-body="true"
       :is-mobile="isMobile"
@@ -483,194 +495,291 @@
         label-position="top"
         class="gateway-form"
       >
-        <div class="form-row-2">
-          <el-form-item label="Name" prop="name">
-            <el-input v-model="formState.name" maxlength="64" placeholder="e.g. ssh-edge-01" />
-          </el-form-item>
-          <el-form-item label="Protocol" prop="protocol">
-            <div class="seg-control">
-              <button
-                type="button"
-                class="seg-btn"
-                :class="{ active: formState.protocol === 'tcp' }"
-                @click="formState.protocol = 'tcp'"
-              >
-                TCP
-              </button>
-              <button
-                type="button"
-                class="seg-btn"
-                :class="{ active: formState.protocol === 'udp' }"
-                :disabled="formState.targetType === 'socks5_proxy'"
-                @click="formState.protocol = 'udp'"
-              >
-                UDP
-              </button>
+        <section class="form-section">
+          <div class="form-section-head">
+            <span class="form-section-kicker">1</span>
+            <div>
+              <div class="form-section-title">Entry Point</div>
+              <div class="form-section-desc">Define the frps listener users will connect to.</div>
             </div>
-          </el-form-item>
-        </div>
-
-        <div class="form-row-2">
-          <el-form-item label="Bind Address" prop="bindAddr">
-            <el-input v-model="formState.bindAddr" placeholder="0.0.0.0" />
-          </el-form-item>
-          <el-form-item label="Listen Port" prop="listenPort">
-            <el-input-number
-              v-model="formState.listenPort"
-              :min="1"
-              :max="65535"
-              controls-position="right"
-              class="full-width"
-            />
-          </el-form-item>
-        </div>
-
-        <el-form-item label="Gateway Client" prop="clientKey">
-          <el-select
-            v-model="formState.clientKey"
-            filterable
-            placeholder="Select a gateway client"
-            class="gateway-client-select"
-          >
-            <el-option
-              v-for="client in eligibleClients"
-              :key="client.key"
-              :label="formatClientOption(client)"
-              :value="client.key"
-            >
-              <div class="client-option">
-                <div class="gateway-client-head">
-                  <span class="gateway-client-name">{{ client.displayName }}</span>
-                  <el-tag size="small" :type="client.online ? 'success' : 'info'">
-                    {{ client.online ? 'online' : 'offline' }}
-                  </el-tag>
-                </div>
-                <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
-                  {{ buildClientSubLabel(client) }}
-                </div>
-                <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
-                  {{ buildClientMetaLine(client) }}
-                </div>
-                <div class="client-option-subtitle">key {{ client.key }}</div>
-              </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="Target" prop="targetType">
-          <div class="seg-control">
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ active: formState.targetType === 'direct' }"
-              @click="formState.targetType = 'direct'"
-            >
-              Direct
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ active: formState.targetType === 'ss_proxy' }"
-              @click="formState.targetType = 'ss_proxy'"
-            >
-              Shadowsocks
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ active: formState.targetType === 'socks5_proxy' }"
-              @click="formState.targetType = 'socks5_proxy'"
-            >
-              SOCKS5
-            </button>
-          </div>
-        </el-form-item>
-
-        <div v-if="isDirectTarget" class="form-row-2">
-          <el-form-item label="Target Host" prop="targetHost">
-            <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
-          </el-form-item>
-          <el-form-item label="Target Port" prop="targetPort">
-            <el-input-number
-              v-model="formState.targetPort"
-              :min="1"
-              :max="65535"
-              controls-position="right"
-              class="full-width"
-            />
-          </el-form-item>
-        </div>
-
-        <div v-if="isSSTarget" class="form-row-2">
-          <el-form-item label="Cipher" prop="ssMethod">
-            <el-select v-model="formState.ssMethod">
-              <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
-              <el-option label="aes-256-gcm" value="aes-256-gcm" />
-              <el-option label="aes-128-gcm" value="aes-128-gcm" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="Password" prop="ssPassword">
-            <el-input
-              v-model="formState.ssPassword"
-              show-password
-              :placeholder="editingTunnel?.targetType === 'ss_proxy' ? 'Leave blank to keep existing' : ''"
-            />
-          </el-form-item>
-        </div>
-
-        <template v-if="isSocks5Target">
-          <div class="form-callout form-callout-warn">
-            SOCKS5 is easier to fingerprint than Shadowsocks. Prefer SS unless you specifically need it.
           </div>
           <div class="form-row-2">
-            <el-form-item label="Authentication">
-              <div class="inline-switch">
-                <el-switch v-model="formState.socks5Auth" />
-                <span class="inline-switch-label">
-                  {{ formState.socks5Auth ? 'Require credentials' : 'No authentication' }}
-                </span>
+            <el-form-item label="Name" prop="name">
+              <el-input v-model="formState.name" maxlength="64" placeholder="e.g. ssh-edge-01" />
+            </el-form-item>
+            <el-form-item label="Protocol" prop="protocol">
+              <div class="seg-control">
+                <button
+                  type="button"
+                  class="seg-btn"
+                  :class="{ active: formState.protocol === 'tcp' }"
+                  @click="formState.protocol = 'tcp'"
+                >
+                  TCP
+                </button>
+                <button
+                  type="button"
+                  class="seg-btn"
+                  :class="{ active: formState.protocol === 'udp' }"
+                  :disabled="formState.targetType === 'socks5_proxy'"
+                  @click="formState.protocol = 'udp'"
+                >
+                  UDP
+                </button>
               </div>
             </el-form-item>
           </div>
-          <div v-if="formState.socks5Auth" class="form-row-2">
-            <el-form-item label="Username" prop="socks5User">
-              <el-input
-                v-model="formState.socks5User"
-                :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
-              />
+
+          <div class="form-row-2">
+            <el-form-item label="Bind Address" prop="bindAddr">
+              <el-input v-model="formState.bindAddr" placeholder="0.0.0.0" />
             </el-form-item>
-            <el-form-item label="Password" prop="socks5Pass">
-              <el-input
-                v-model="formState.socks5Pass"
-                show-password
-                :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+            <el-form-item label="Listen Port" prop="listenPort">
+              <el-input-number
+                v-model="formState.listenPort"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                class="full-width"
               />
             </el-form-item>
           </div>
-        </template>
+        </section>
 
-        <div class="form-row-2">
-          <el-form-item label="Remark" prop="remark">
-            <el-input v-model="formState.remark" maxlength="256" placeholder="Optional note" />
+        <section class="form-section">
+          <div class="form-section-head">
+            <span class="form-section-kicker">2</span>
+            <div>
+              <div class="form-section-title">Gateway Client</div>
+              <div class="form-section-desc">Pick the frpc node that will host the local target service.</div>
+            </div>
+          </div>
+          <el-form-item label="Client" prop="clientKey">
+            <el-select
+              v-model="formState.clientKey"
+              filterable
+              placeholder="Select a gateway client"
+              class="gateway-client-select"
+            >
+              <el-option
+                v-for="client in eligibleClients"
+                :key="client.key"
+                :label="formatClientOption(client)"
+                :value="client.key"
+              >
+                <div class="client-option">
+                  <div class="gateway-client-head">
+                    <span class="gateway-client-name">{{ client.displayName }}</span>
+                    <el-tag size="small" :type="client.online ? 'success' : 'info'">
+                      {{ client.online ? 'online' : 'offline' }}
+                    </el-tag>
+                  </div>
+                  <div v-if="buildClientSubLabel(client)" class="client-option-subtitle">
+                    {{ buildClientSubLabel(client) }}
+                  </div>
+                  <div v-if="buildClientMetaLine(client)" class="client-option-subtitle">
+                    {{ buildClientMetaLine(client) }}
+                  </div>
+                  <div class="client-option-subtitle">key {{ client.key }}</div>
+                </div>
+              </el-option>
+            </el-select>
           </el-form-item>
-          <el-form-item label="Validity" prop="validityValue">
-            <div class="validity-row">
-              <el-input-number
-                v-model="formState.validityValue"
-                :min="1"
-                :max="3650"
-                controls-position="right"
-                class="full-width"
-                :disabled="formState.validityUnit === 'permanent'"
-              />
-              <el-select v-model="formState.validityUnit" class="validity-unit-select">
-                <el-option label="Permanent" value="permanent" />
-                <el-option label="Hours" value="h" />
-                <el-option label="Days" value="d" />
-              </el-select>
+          <div v-if="selectedClient" class="selected-client-card">
+            <div class="gateway-client-head">
+              <span class="gateway-client-name">{{ selectedClient.displayName }}</span>
+              <el-tag size="small" :type="selectedClient.online ? 'success' : 'info'">
+                {{ selectedClient.online ? 'online' : 'offline' }}
+              </el-tag>
+            </div>
+            <div v-if="buildClientSubLabel(selectedClient)" class="detail-meta">
+              {{ buildClientSubLabel(selectedClient) }}
+            </div>
+            <div v-if="buildClientMetaLine(selectedClient)" class="detail-meta">
+              {{ buildClientMetaLine(selectedClient) }}
+            </div>
+            <div class="detail-meta">key {{ selectedClient.key }}</div>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <div class="form-section-head">
+            <span class="form-section-kicker">3</span>
+            <div>
+              <div class="form-section-title">Target Mode</div>
+              <div class="form-section-desc">Choose whether frpc forwards directly or starts an embedded proxy.</div>
+            </div>
+          </div>
+          <el-form-item label="Target" prop="targetType">
+            <div class="target-mode-grid">
+              <button
+                type="button"
+                class="target-mode-card"
+                :class="{ active: formState.targetType === 'direct' }"
+                @click="formState.targetType = 'direct'"
+              >
+                <span class="target-mode-title">Direct</span>
+                <span class="target-mode-desc">Forward to host:port on the client side.</span>
+              </button>
+              <button
+                type="button"
+                class="target-mode-card"
+                :class="{ active: formState.targetType === 'ss_proxy' }"
+                @click="formState.targetType = 'ss_proxy'"
+              >
+                <span class="target-mode-title">Shadowsocks</span>
+                <span class="target-mode-desc">Existing go-shadowsocks2 embedded service.</span>
+              </button>
+              <button
+                type="button"
+                class="target-mode-card"
+                :class="{ active: formState.targetType === 'sing_ss_proxy' }"
+                @click="formState.targetType = 'sing_ss_proxy'"
+              >
+                <span class="target-mode-title">Sing SS</span>
+                <span class="target-mode-desc">Mihomo-compatible SS with optional UOT.</span>
+              </button>
+              <button
+                type="button"
+                class="target-mode-card"
+                :class="{ active: formState.targetType === 'socks5_proxy' }"
+                @click="formState.targetType = 'socks5_proxy'"
+              >
+                <span class="target-mode-title">SOCKS5</span>
+                <span class="target-mode-desc">Embedded SOCKS5 service on frpc.</span>
+              </button>
             </div>
           </el-form-item>
-        </div>
+
+          <div v-if="isDirectTarget" class="form-row-2">
+            <el-form-item label="Target Host" prop="targetHost">
+              <el-input v-model="formState.targetHost" placeholder="127.0.0.1" />
+            </el-form-item>
+            <el-form-item label="Target Port" prop="targetPort">
+              <el-input-number
+                v-model="formState.targetPort"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                class="full-width"
+              />
+            </el-form-item>
+          </div>
+
+          <template v-if="isSSTarget">
+            <div v-if="isSingSSTarget" class="form-callout">
+              Mihomo maps cipher to ssMethod and password to ssPassword. 2022 ciphers require a base64 PSK, not a normal password.
+            </div>
+            <div class="form-row-2">
+              <el-form-item label="Cipher" prop="ssMethod">
+                <el-select v-model="formState.ssMethod">
+                  <template v-if="isSingSSTarget">
+                    <el-option
+                      v-for="method in SING_SS_METHODS"
+                      :key="method"
+                      :label="method"
+                      :value="method"
+                    />
+                  </template>
+                  <template v-else>
+                    <el-option label="chacha20-ietf-poly1305" value="chacha20-ietf-poly1305" />
+                    <el-option label="aes-256-gcm" value="aes-256-gcm" />
+                    <el-option label="aes-128-gcm" value="aes-128-gcm" />
+                  </template>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="Password" prop="ssPassword">
+                <el-input
+                  v-model="formState.ssPassword"
+                  show-password
+                  :placeholder="canReuseExistingSSSecret ? 'Leave blank to keep existing' : ''"
+                />
+              </el-form-item>
+            </div>
+            <div v-if="isSingSSTarget && formState.protocol === 'tcp'" class="form-row-2">
+              <el-form-item label="UDP over TCP">
+                <div class="inline-switch">
+                  <el-switch v-model="formState.uotEnabled" />
+                  <span class="inline-switch-label">
+                    {{ formState.uotEnabled ? 'Enabled' : 'Disabled' }}
+                  </span>
+                </div>
+              </el-form-item>
+              <el-form-item v-if="formState.uotEnabled" label="UOT Version">
+                <el-segmented
+                  v-model="formState.uotVersion"
+                  :options="[
+                    { label: 'v2', value: 2 },
+                    { label: 'v1', value: 1 },
+                  ]"
+                />
+              </el-form-item>
+            </div>
+          </template>
+
+          <template v-if="isSocks5Target">
+            <div class="form-callout form-callout-warn">
+              SOCKS5 is easier to fingerprint than Shadowsocks. Prefer SS unless you specifically need it.
+            </div>
+            <div class="form-row-2">
+              <el-form-item label="Authentication">
+                <div class="inline-switch">
+                  <el-switch v-model="formState.socks5Auth" />
+                  <span class="inline-switch-label">
+                    {{ formState.socks5Auth ? 'Require credentials' : 'No authentication' }}
+                  </span>
+                </div>
+              </el-form-item>
+            </div>
+            <div v-if="formState.socks5Auth" class="form-row-2">
+              <el-form-item label="Username" prop="socks5User">
+                <el-input
+                  v-model="formState.socks5User"
+                  :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+                />
+              </el-form-item>
+              <el-form-item label="Password" prop="socks5Pass">
+                <el-input
+                  v-model="formState.socks5Pass"
+                  show-password
+                  :placeholder="editingTunnel?.targetType === 'socks5_proxy' ? 'Leave blank to keep existing' : ''"
+                />
+              </el-form-item>
+            </div>
+          </template>
+        </section>
+
+        <section class="form-section">
+          <div class="form-section-head">
+            <span class="form-section-kicker">4</span>
+            <div>
+              <div class="form-section-title">Lifecycle</div>
+              <div class="form-section-desc">Add operator context and optional expiration.</div>
+            </div>
+          </div>
+          <div class="form-row-2">
+            <el-form-item label="Remark" prop="remark">
+              <el-input v-model="formState.remark" maxlength="256" placeholder="Optional note" />
+            </el-form-item>
+            <el-form-item label="Validity" prop="validityValue">
+              <div class="validity-row">
+                <el-input-number
+                  v-model="formState.validityValue"
+                  :min="1"
+                  :max="3650"
+                  controls-position="right"
+                  class="full-width"
+                  :disabled="formState.validityUnit === 'permanent'"
+                />
+                <el-select v-model="formState.validityUnit" class="validity-unit-select">
+                  <el-option label="Permanent" value="permanent" />
+                  <el-option label="Hours" value="h" />
+                  <el-option label="Days" value="d" />
+                </el-select>
+              </div>
+            </el-form-item>
+          </div>
+        </section>
       </el-form>
 
       <template #footer>
@@ -734,6 +843,22 @@ import { Client } from '../utils/client'
 import { formatDistanceToNow, formatFileSize } from '../utils/format'
 
 const { isMobile } = useResponsive()
+
+const SING_SS_METHODS = [
+  'aes-128-gcm',
+  'aes-192-gcm',
+  'aes-256-gcm',
+  'chacha20-ietf-poly1305',
+  'xchacha20-ietf-poly1305',
+  '2022-blake3-aes-128-gcm',
+  '2022-blake3-aes-256-gcm',
+  '2022-blake3-chacha20-poly1305',
+]
+const LEGACY_SS_METHODS = [
+  'chacha20-ietf-poly1305',
+  'aes-256-gcm',
+  'aes-128-gcm',
+]
 
 const MOCK_TUNNELS: GatewayTunnelData[] = [
   {
@@ -837,6 +962,8 @@ const formState = reactive({
   targetPort: 0,
   ssMethod: 'chacha20-ietf-poly1305',
   ssPassword: '',
+  uotEnabled: false,
+  uotVersion: 2,
   socks5Auth: false,
   socks5User: '',
   socks5Pass: '',
@@ -893,7 +1020,7 @@ const formRules: FormRules<typeof formState> = {
   ssMethod: [
     {
       validator: (_rule, value, callback) => {
-        if (formState.targetType !== 'ss_proxy') {
+        if (!isSSTarget.value) {
           callback()
           return
         }
@@ -909,7 +1036,7 @@ const formRules: FormRules<typeof formState> = {
   ssPassword: [
     {
       validator: (_rule, value, callback) => {
-        if (formState.targetType !== 'ss_proxy') {
+        if (!isSSTarget.value) {
           callback()
           return
         }
@@ -989,6 +1116,8 @@ const clientMap = computed<Record<string, Client>>(() =>
   Object.fromEntries(clients.value.map((client) => [client.key, client])),
 )
 
+const selectedClient = computed(() => clientMap.value[formState.clientKey])
+
 const eligibleClients = computed(() =>
   [...clients.value]
     .filter((client) => client.allowGatewayTunnels && client.hasStableClientID)
@@ -1007,14 +1136,19 @@ const buildClientMetaLine = (client: Client) => {
   if (client.selectedProtocol) {
     parts.push(client.selectedProtocol)
   }
+  if (client.supportsGatewaySingSSProxy) {
+    parts.push('sing-ss')
+  }
   return parts.join(' • ')
 }
 
 const isDirectTarget = computed(() => formState.targetType === 'direct')
-const isSSTarget = computed(() => formState.targetType === 'ss_proxy')
+const isLegacySSTarget = computed(() => formState.targetType === 'ss_proxy')
+const isSingSSTarget = computed(() => formState.targetType === 'sing_ss_proxy')
+const isSSTarget = computed(() => isLegacySSTarget.value || isSingSSTarget.value)
 const isSocks5Target = computed(() => formState.targetType === 'socks5_proxy')
 const canReuseExistingSSSecret = computed(
-  () => editingTunnel.value?.targetType === 'ss_proxy' && formState.targetType === 'ss_proxy',
+  () => editingTunnel.value?.targetType === formState.targetType && isSSTarget.value,
 )
 const canReuseExistingSocks5Secret = computed(
   () =>
@@ -1134,6 +1268,8 @@ const getStatusMeta = (status: string) => {
       return { label: 'Client Offline', type: 'info' as const }
     case 'disabled':
       return { label: 'Disabled', type: 'info' as const }
+    case 'client-unsupported':
+      return { label: 'Unsupported Client', type: 'danger' as const }
     case 'expired':
       return { label: 'Expired', type: 'warning' as const }
     case 'register-failed':
@@ -1158,10 +1294,25 @@ const formatUpdatedAt = (value: string) => {
   return formatDistanceToNow(date)
 }
 
+const formatTargetTypeLabel = (targetType?: GatewayTargetType) => {
+  switch (targetType || 'direct') {
+    case 'ss_proxy':
+      return 'Shadowsocks'
+    case 'sing_ss_proxy':
+      return 'Sing SS'
+    case 'socks5_proxy':
+      return 'SOCKS5'
+    default:
+      return 'Direct'
+  }
+}
+
 const formatTunnelTarget = (tunnel: GatewayTunnelData) => {
   switch (tunnel.targetType || 'direct') {
     case 'ss_proxy':
       return `embedded ss://${tunnel.ssMethod || '-'}`
+    case 'sing_ss_proxy':
+      return `embedded sing-ss://${tunnel.ssMethod || '-'}${tunnel.uotEnabled ? `/uot-v${tunnel.uotVersion || 2}` : ''}`
     case 'socks5_proxy':
       return tunnel.socks5Auth ? 'embedded socks5://auth' : 'embedded socks5://no-auth'
     default:
@@ -1175,6 +1326,13 @@ const formatTunnelTargetMeta = (tunnel: GatewayTunnelData) => {
       return tunnel.protocol === 'udp'
         ? 'Shadowsocks server on gateway client (TCP/UDP capable)'
         : 'Shadowsocks server on gateway client'
+    case 'sing_ss_proxy':
+      if (tunnel.protocol === 'udp') {
+        return 'Sing Shadowsocks UDP service on gateway client'
+      }
+      return tunnel.uotEnabled
+        ? `Sing Shadowsocks TCP service with UOT v${tunnel.uotVersion || 2}`
+        : 'Sing Shadowsocks TCP service on gateway client'
     case 'socks5_proxy':
       return 'SOCKS5 server on gateway client'
     default:
@@ -1287,6 +1445,8 @@ const resetForm = () => {
   formState.targetPort = 0
   formState.ssMethod = 'chacha20-ietf-poly1305'
   formState.ssPassword = ''
+  formState.uotEnabled = false
+  formState.uotVersion = 2
   formState.socks5Auth = false
   formState.socks5User = ''
   formState.socks5Pass = ''
@@ -1306,6 +1466,8 @@ const populateForm = (tunnel: GatewayTunnelData) => {
   formState.targetPort = tunnel.targetPort
   formState.ssMethod = tunnel.ssMethod || 'chacha20-ietf-poly1305'
   formState.ssPassword = tunnel.ssPassword || ''
+  formState.uotEnabled = Boolean(tunnel.uotEnabled)
+  formState.uotVersion = tunnel.uotVersion || 2
   formState.socks5Auth = Boolean(tunnel.socks5Auth)
   formState.socks5User = tunnel.socks5User || ''
   formState.socks5Pass = tunnel.socks5Pass || ''
@@ -1327,6 +1489,26 @@ watch(
   (value) => {
     if (value === 'socks5_proxy' && formState.protocol === 'udp') {
       formState.protocol = 'tcp'
+    }
+    if (value === 'sing_ss_proxy' && !SING_SS_METHODS.includes(formState.ssMethod)) {
+      formState.ssMethod = 'chacha20-ietf-poly1305'
+    }
+    if (value === 'ss_proxy' && !LEGACY_SS_METHODS.includes(formState.ssMethod)) {
+      formState.ssMethod = 'chacha20-ietf-poly1305'
+    }
+    if (value !== 'sing_ss_proxy') {
+      formState.uotEnabled = false
+      formState.uotVersion = 2
+    }
+  },
+)
+
+watch(
+  () => formState.protocol,
+  (value) => {
+    if (value === 'udp') {
+      formState.uotEnabled = false
+      formState.uotVersion = 2
     }
   },
 )
@@ -1367,7 +1549,6 @@ const loadPageSnapshot = async () => {
   loading.value = true
   try {
     await Promise.all([fetchClients(true), fetchTunnels()])
-    hasFetched.value = true
   } catch (error: any) {
     ElMessage({
       type: 'error',
@@ -1376,6 +1557,7 @@ const loadPageSnapshot = async () => {
     })
   } finally {
     loading.value = false
+    hasFetched.value = true
   }
 }
 
@@ -1505,6 +1687,14 @@ const submitForm = async () => {
 
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
+  if (formState.targetType === 'sing_ss_proxy' && selectedClient.value && !selectedClient.value.supportsGatewaySingSSProxy) {
+    ElMessage({
+      type: 'error',
+      showClose: true,
+      message: 'Selected gateway client does not support sing_ss_proxy',
+    })
+    return
+  }
 
   saving.value = true
   try {
@@ -1520,6 +1710,15 @@ const submitForm = async () => {
       targetPort: formState.targetPort,
       ssMethod: formState.ssMethod.trim(),
       ssPassword: formState.ssPassword || undefined,
+      uotEnabled: formState.targetType === 'sing_ss_proxy' && formState.protocol === 'tcp'
+        ? formState.uotEnabled
+        : false,
+      uotVersion:
+        formState.targetType === 'sing_ss_proxy' &&
+        formState.protocol === 'tcp' &&
+        formState.uotEnabled
+          ? formState.uotVersion
+          : 0,
       socks5Auth: formState.socks5Auth,
       socks5User: formState.socks5User.trim() || undefined,
       socks5Pass: formState.socks5Pass || undefined,
@@ -1532,6 +1731,13 @@ const submitForm = async () => {
       if (
         editingTunnel.value.targetType === 'ss_proxy' &&
         formState.targetType === 'ss_proxy' &&
+        !formState.ssPassword.trim()
+      ) {
+        payload.ssPassword = undefined
+      }
+      if (
+        editingTunnel.value.targetType === 'sing_ss_proxy' &&
+        formState.targetType === 'sing_ss_proxy' &&
         !formState.ssPassword.trim()
       ) {
         payload.ssPassword = undefined
@@ -2128,6 +2334,7 @@ onMounted(() => {
 .tunnel-card.status-target-invalid,
 .tunnel-card.status-target-unreachable,
 .tunnel-card.status-invalid-config,
+.tunnel-card.status-client-unsupported,
 .tunnel-card.status-apply-failed {
   border-left-color: var(--el-color-danger);
 }
@@ -2173,17 +2380,24 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.tunnel-card-grid {
+.tunnel-card-body {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) 260px;
   gap: 12px;
   padding: 12px 16px 14px;
 }
 
-.detail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.route-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) 26px minmax(0, 1.1fr) 26px minmax(0, 1.1fr);
+  gap: 8px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.route-node,
+.status-panel,
+.selected-client-card {
   min-width: 0;
   padding: 14px 16px;
   border-radius: 14px;
@@ -2191,6 +2405,44 @@ onMounted(() => {
   border: 1px solid var(--el-border-color-extra-light);
 }
 
+.route-node,
+.status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.route-node-listen {
+  background: linear-gradient(180deg, rgba(64, 158, 255, 0.08), var(--el-fill-color-light));
+}
+
+.route-node-gateway {
+  background: linear-gradient(180deg, rgba(103, 194, 58, 0.08), var(--el-fill-color-light));
+}
+
+.route-node-target {
+  background: linear-gradient(180deg, rgba(230, 162, 60, 0.08), var(--el-fill-color-light));
+}
+
+.route-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-placeholder);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.status-panel {
+  background: var(--el-bg-color);
+}
+
+.status-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 
 .detail-label {
   font-size: 12px;
@@ -2249,8 +2501,53 @@ onMounted(() => {
 .gateway-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   padding-top: 2px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 2px;
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--el-fill-color-extra-light), var(--el-bg-color));
+}
+
+.form-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.form-section-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.form-section-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--el-text-color-primary);
+  line-height: 1.2;
+}
+
+.form-section-desc {
+  margin-top: 2px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .form-row-2 {
@@ -2298,11 +2595,59 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
+.target-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.target-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 76px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.target-mode-card:hover {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.target-mode-card.active {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-7) inset;
+}
+
+.target-mode-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--el-text-color-primary);
+}
+
+.target-mode-desc {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .form-callout {
   padding: 9px 12px;
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.5;
+  background: rgba(64, 158, 255, 0.07);
+  border: 1px solid rgba(64, 158, 255, 0.18);
+  color: var(--el-text-color-secondary);
 }
 
 .form-callout-warn {
@@ -2325,6 +2670,18 @@ onMounted(() => {
 
 .full-width {
   width: 100%;
+}
+
+.gateway-client-select {
+  width: 100%;
+}
+
+.selected-client-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--el-bg-color);
 }
 
 .client-option {
@@ -2363,10 +2720,20 @@ code {
     grid-template-columns: 1fr;
   }
 
-  .tunnel-card-grid,
+  .tunnel-card-body,
   .snapshot-list,
-  .form-row-2 {
+  .form-row-2,
+  .target-mode-grid {
     grid-template-columns: 1fr;
+  }
+
+  .route-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .route-arrow {
+    min-height: 14px;
+    transform: rotate(90deg);
   }
 
   .actions-section,
