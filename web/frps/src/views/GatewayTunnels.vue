@@ -494,12 +494,12 @@
         label-position="top"
         class="gateway-form"
       >
-        <section class="form-section">
+        <section class="form-section form-section-entry">
           <div class="form-section-head">
             <span class="form-section-kicker">1</span>
-            <div>
-              <div class="form-section-title">Entry Point</div>
-              <div class="form-section-desc">Define the frps listener users will connect to.</div>
+            <div class="form-section-title">
+              Entry Point
+              <span class="form-section-desc">Define the frps listener users will connect to.</span>
             </div>
           </div>
           <div class="form-row-2 compact-row">
@@ -554,12 +554,12 @@
           </div>
         </section>
 
-        <section class="form-section">
+        <section class="form-section form-section-gateway">
           <div class="form-section-head">
             <span class="form-section-kicker">2</span>
-            <div>
-              <div class="form-section-title">Gateway Client</div>
-              <div class="form-section-desc">Pick the frpc node that will host the local target service.</div>
+            <div class="form-section-title">
+              Gateway Client
+              <span class="form-section-desc">Pick the frpc node that will host the local target service.</span>
             </div>
           </div>
           <div class="compact-field compact-field-full">
@@ -608,12 +608,12 @@
           </div>
         </section>
 
-        <section class="form-section">
+        <section class="form-section form-section-target">
           <div class="form-section-head">
             <span class="form-section-kicker">3</span>
-            <div>
-              <div class="form-section-title">Target Mode</div>
-              <div class="form-section-desc">Choose whether frpc forwards directly or starts an embedded proxy.</div>
+            <div class="form-section-title">
+              Target Mode
+              <span class="form-section-desc">Choose whether frpc forwards directly or starts an embedded proxy.</span>
             </div>
           </div>
           <div class="compact-field compact-field-full">
@@ -786,12 +786,12 @@
           </template>
         </section>
 
-        <section class="form-section">
+        <section class="form-section form-section-lifecycle">
           <div class="form-section-head">
             <span class="form-section-kicker">4</span>
-            <div>
-              <div class="form-section-title">Lifecycle</div>
-              <div class="form-section-desc">Add operator context and optional expiration.</div>
+            <div class="form-section-title">
+              Lifecycle
+              <span class="form-section-desc">Add operator context and optional expiration.</span>
             </div>
           </div>
           <div class="form-row-2">
@@ -805,13 +805,15 @@
               <span class="compact-label">Validity</span>
               <el-form-item prop="validityValue" class="compact-form-item">
                 <div class="validity-row">
-                  <el-input-number
-                    v-model="formState.validityValue"
-                    :min="1"
-                    :max="3650"
-                    controls-position="right"
-                    class="full-width"
+                  <el-input
+                    v-model.number="formState.validityValue"
+                    type="number"
+                    min="1"
+                    max="3650"
+                    step="1"
+                    placeholder="1"
                     :disabled="formState.validityUnit === 'permanent'"
+                    @keydown="blockNonIntegerNumberInput"
                   />
                   <el-select v-model="formState.validityUnit" class="validity-unit-select">
                     <el-option label="Permanent" value="permanent" />
@@ -1014,6 +1016,12 @@ const formState = reactive({
   validityValue: 1,
 })
 
+const blockNonIntegerNumberInput = (event: KeyboardEvent) => {
+  if (['e', 'E', '+', '-', '.', ','].includes(event.key)) {
+    event.preventDefault()
+  }
+}
+
 const formRules: FormRules<typeof formState> = {
   name: [{ required: true, message: 'Name is required', trigger: 'blur' }],
   protocol: [
@@ -1143,8 +1151,8 @@ const formRules: FormRules<typeof formState> = {
           callback()
           return
         }
-        if (!value || value < 1 || value > 3650) {
-          callback(new Error('Validity value must be between 1 and 3650'))
+        if (!Number.isInteger(value) || value < 1 || value > 3650) {
+          callback(new Error('Validity value must be an integer between 1 and 3650'))
           return
         }
         callback()
@@ -2561,13 +2569,33 @@ onMounted(() => {
 }
 
 .form-section {
+  --section-rgb: 64, 158, 255;
+  --section-color: rgb(var(--section-rgb));
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px 16px;
-  border: 1px solid var(--el-border-color-extra-light);
+  border: 1px solid rgba(var(--section-rgb), 0.18);
   border-radius: 16px;
-  background: linear-gradient(180deg, var(--el-fill-color-extra-light), var(--el-bg-color));
+  background:
+    radial-gradient(circle at 0% 0%, rgba(var(--section-rgb), 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(var(--section-rgb), 0.055), var(--el-bg-color) 72%);
+}
+
+.form-section-entry {
+  --section-rgb: 64, 158, 255;
+}
+
+.form-section-gateway {
+  --section-rgb: 103, 194, 58;
+}
+
+.form-section-target {
+  --section-rgb: 230, 162, 60;
+}
+
+.form-section-lifecycle {
+  --section-rgb: 144, 147, 153;
 }
 
 .form-section-head {
@@ -2583,8 +2611,8 @@ onMounted(() => {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
+  background: rgba(var(--section-rgb), 0.14);
+  color: var(--section-color);
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
@@ -2598,9 +2626,10 @@ onMounted(() => {
 }
 
 .form-section-desc {
-  margin-top: 2px;
+  margin-left: 8px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  font-weight: 400;
   line-height: 1.45;
 }
 
