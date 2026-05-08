@@ -10,7 +10,7 @@ endif
 endif
 NOWEB_TAG = $(shell [ ! -d web/frps/dist ] || [ ! -d web/frpc/dist ] && echo ',noweb')
 
-.PHONY: web frps-web frpc-web frps frpc
+.PHONY: web frps-web frpc-web frps frpc wizard-acceptance
 
 all: env fmt web build
 
@@ -59,6 +59,15 @@ e2e:
 
 e2e-trace:
 	DEBUG=true LOG_LEVEL=trace ./hack/run-e2e.sh
+
+wizard-acceptance: build
+	go test -tags "$(NOWEB_TAG)" -v ./cmd/internal/wizard
+	GINKGO_BIN="$$(command -v ginkgo || true)"; \
+	if [ -z "$${GINKGO_BIN}" ]; then \
+		go install github.com/onsi/ginkgo/v2/ginkgo@v2.23.4; \
+		GINKGO_BIN="$$(go env GOPATH)/bin/ginkgo"; \
+	fi; \
+	"$${GINKGO_BIN}" -nodes=1 --focus "\\[Feature: Wizard\\]" ./test/e2e -- -frpc-path="$(CURDIR)/bin/frpc" -frps-path="$(CURDIR)/bin/frps" -log-level=debug
 
 e2e-compatibility-last-frpc:
 	if [ ! -d "./lastversion" ]; then \

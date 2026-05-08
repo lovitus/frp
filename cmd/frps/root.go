@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/fatedier/frp/cmd/internal/wizard"
 	"github.com/fatedier/frp/pkg/config"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
@@ -33,6 +34,7 @@ import (
 
 var (
 	cfgFile          string
+	wizardMode       bool
 	showVersion      bool
 	strictConfigMode bool
 	allowUnsafe      []string
@@ -46,6 +48,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&strictConfigMode, "strict_config", "", true, "strict config parsing mode, unknown fields will cause errors")
 	rootCmd.PersistentFlags().StringSliceVarP(&allowUnsafe, "allow-unsafe", "", []string{},
 		fmt.Sprintf("allowed unsafe features, one or more of: %s", strings.Join(security.ServerUnsafeFeatures, ", ")))
+	rootCmd.Flags().BoolVar(&wizardMode, "wizard", false, "run offline interactive quick deploy wizard")
 
 	config.RegisterServerConfigFlags(rootCmd, &serverCfg)
 }
@@ -56,6 +59,19 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if showVersion {
 			fmt.Println(version.Full())
+			return nil
+		}
+		if wizardMode {
+			if err := wizard.RunServer(
+				wizard.RuntimeOptions(os.Stdin, os.Stdout, os.Stderr, "", version.Full()),
+				wizard.ServerConfig{
+					ConfigFile:         cfgFile,
+					ConfigFileExplicit: flagChanged(cmd, "config"),
+				},
+			); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 			return nil
 		}
 
@@ -106,6 +122,11 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func flagChanged(cmd *cobra.Command, name string) bool {
+	flag := cmd.Flag(name)
+	return flag != nil && flag.Changed
 }
 
 func runServer(cfg *v1.ServerConfig) (err error) {

@@ -37,6 +37,13 @@ Quick-deploy features:
 - runs config verification and a short smoke check
 - prints pinned `frpc` quick-deploy commands after `frps` setup
 
+If you already have the binaries locally, use the offline wizard path instead:
+
+```bash
+./frps --wizard
+./frpc --wizard
+```
+
 More operator-focused quick-start details:
 
 - [Quick Deploy](/doc/quick_deploy.md)

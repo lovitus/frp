@@ -36,6 +36,40 @@ powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.gi
 - Config files are generated in the current working directory.
 - No systemd/service setup is done; process lifecycle is user-managed.
 
+## Offline Local-Binary Wizard
+
+If you already have `frps` or `frpc` locally, use the built-in wizard instead
+of the online scripts:
+
+```bash
+./frps --wizard
+./frpc --wizard
+```
+
+The wizard does not detect platform or download binaries. It keeps the same
+quick-deploy prompts, TOML output, verification, smoke check, and next-step
+messages. It refuses to overwrite an existing target config; delete or rename
+the existing file before rerunning.
+
+Connection passwords used to generate the default `mixToken` cannot contain a
+comma, because `mixToken` uses commas to separate transport entries.
+
+Defaults:
+
+- `frps --wizard` writes `./frps.toml`, or the explicit `-c/--config` path.
+- `frpc --wizard` writes `./frpc.toml`, or the explicit `-c/--config` path.
+- `frpc --wizard --config_dir ...` is rejected because wizard creates one
+  local config file.
+
+Preset client bootstrap from a server wizard can also be run offline:
+
+```bash
+./frpc --wizard --mix-bind-port 7001 --mix-token-b64 '<base64-mix-token>'
+```
+
+The server wizard prints this command automatically after a successful local
+`frps` config verification and smoke check.
+
 ## frps Flow
 
 The script asks for:
@@ -125,7 +159,7 @@ Use fixed release tag:
 
 ```bash
 wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.sh | \
-  bash -s -- --repo lovitus/frp --release-tag v0.68.1-mix.16
+  bash -s -- --repo lovitus/frp --release-tag v0.68.1-mix.32
 ```
 
 Windows server directly:
@@ -143,6 +177,6 @@ powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.gi
 Windows with fixed release tag:
 
 ```powershell
-$env:FRP_RELEASE_TAG='v0.68.1-mix.25'
+$env:FRP_RELEASE_TAG='v0.68.1-mix.32'
 powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.ps1 | iex"
 ```

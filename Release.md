@@ -1,58 +1,82 @@
 ## Release Focus
 
-This release focuses on expanding Gateway embedded proxy modes with Mihomo-compatible Shadowsocks over `sing-shadowsocks`, while keeping the existing `ss_proxy` path untouched. Compared with the previous tagged release, it adds a new `sing_ss_proxy` target type with TCP, UDP, and UDP-over-TCP support, plus the capability gating and dashboard changes needed to operate it safely.
+This release adds an offline local-binary wizard for quick deploy. Operators who
+already have `frps` or `frpc` can now generate, verify, and smoke-test quick
+deploy TOML configs directly from the binary without downloading or piping the
+online bootstrap scripts.
 
 ## What Changed In This Release
 
-### Gateway embedded sing Shadowsocks
+### Offline quick-deploy wizard
 
-* Added a new Gateway target type `sing_ss_proxy` alongside the existing `direct`, `ss_proxy`, and `socks5_proxy` modes.
-* Added embedded `sing-shadowsocks` handling for:
-  * pure Shadowsocks TCP
-  * pure Shadowsocks UDP
-  * Shadowsocks TCP carrying UDP-over-TCP (UOT)
-* Added UOT configuration fields to Gateway tunnels:
-  * `uotEnabled`
-  * `uotVersion`
-* Implemented UOT compatibility for Mihomo-style `udp-over-tcp-version: 1` and `2`.
-* Reused existing `ssMethod` and `ssPassword` fields instead of introducing duplicate sing-specific secret fields.
-* Added method validation through `sing-shadowsocks`, including AEAD 2022 password/PSK checks.
+* Added `frps --wizard` for local server bootstrap.
+* Added `frpc --wizard` for local client bootstrap.
+* The wizard writes TOML configs in the current working directory by default:
+  * `frps.toml` for `frps --wizard`
+  * `frpc.toml` for `frpc --wizard`
+* `-c/--config` can be used to select an explicit output path.
+* Existing target config files are never overwritten; reruns require deleting or
+  renaming the previous output first.
 
-### Capability gating and status flow
+### Server-to-client bootstrap
 
-* Added explicit client capability advertisement via login meta `gateway_sing_ss_proxy=true`.
-* Prevented `frps` from assigning `sing_ss_proxy` tunnels to clients that do not advertise support.
-* Added a stable Gateway status `client-unsupported` so unsupported clients are surfaced explicitly instead of oscillating between pending and apply failures.
-* Updated status refresh ordering so expired tunnels remain `expired` even when the client is offline, disabled, or lacks sing-ss capability.
-* Cleared stale `client-unsupported` state when a capable client reconnects and can accept the tunnel again.
+* The server wizard prints local `frpc --wizard` bootstrap commands for
+  Unix-like shells and Windows PowerShell.
+* The printed client command carries `mixBindPort` and a base64-encoded
+  `mixToken`, so the client wizard only asks for:
+  * `serverAddr`
+  * `clientID`
+* The server wizard still prints online quick-deploy commands for operators who
+  want to install `frpc` on another machine.
 
-### Gateway dashboard and API
+### Validation and smoke checks
 
-* Extended Gateway HTTP API, YAML import/export, and wire messages with `sing_ss_proxy`, `uotEnabled`, and `uotVersion`.
-* Added `Sing Shadowsocks` to the Gateway tunnel form and list views.
-* Added UOT controls to the dashboard for `sing_ss_proxy + tcp`.
-* Surfaced client sing-ss capability in the dashboard so unsupported client selections are blocked before submission.
-* Updated tunnel summaries to distinguish normal sing-ss TCP, UDP, and `tcp+uot` modes.
+* Generated configs are verified with the running binary before the wizard
+  reports success.
+* `frps --wizard` performs a short start check and fails if the server exits
+  immediately.
+* `frpc --wizard` performs a short start check and warns, rather than failing,
+  when the client exits quickly because the server is not reachable yet.
+* `frpc --wizard --config_dir ...` is rejected because the wizard creates one
+  local config file.
+
+### Operator-facing hardening
+
+* Connection passwords used to generate the default `mixToken` reject commas,
+  because `mixToken` is comma-delimited.
+* Shell and PowerShell command output is quoted for paths and token payloads.
+* Preset `--mix-token-b64` input is decoded before TOML rendering so shell
+  transport does not corrupt token values.
 
 ## Compatibility Notes
 
 * Existing `frps.toml` and `frpc.toml` files remain compatible.
-* Existing `ss_proxy` and `socks5_proxy` behavior is preserved; `sing_ss_proxy` is additive.
-* `sing_ss_proxy` requires a client that advertises `gateway_sing_ss_proxy=true` during login. Older clients will not receive those tunnels.
-* Gateway tunnels remain runtime-only. No new server-side persistence or filesystem storage is introduced in this release.
-* The release packaging workflow still injects the tag version at build time and verifies archive names, archive root directories, and binary `--version` output against the tag.
+* Existing online quick-deploy scripts are unchanged and remain the default path
+  when a matching release binary needs to be downloaded.
+* The offline wizard is additive and only runs when `--wizard` is supplied.
+* `frpc --wizard` intentionally ignores the legacy implicit `./frpc.ini`
+  default and writes `./frpc.toml` unless `-c/--config` is explicitly provided.
+* Generated client configs keep Gateway-friendly defaults:
+  * `allowGatewayTunnels = true`
+  * `mixAllowGateway = true`
+  * `loginFailExit = false`
 
 ## Operator Notes
 
-* For Mihomo `type: ss` clients using `udp-over-tcp: true`, configure `udp-over-tcp-version` to match the tunnel's `uotVersion`.
-* AEAD 2022 methods continue to use PSK-style passwords rather than arbitrary strings. Operators should provision those values exactly as generated.
-* Pure UDP sing-ss tunnels and UOT tunnels now share the same Gateway UI and import/export workflow, but they remain distinct runtime modes.
+* Use `./frps --wizard` on a server that already has the `frps` binary.
+* Copy one of the printed local `frpc --wizard` commands to a client host that
+  already has the `frpc` binary.
+* Use the printed online quick-deploy commands when the client host still needs
+  to download a release binary.
+* If the wizard refuses to overwrite an existing config, move or delete that
+  file before rerunning.
 
 ## Validation
 
 Validated for this release with:
 
+* `go test -tags ",noweb" -v ./cmd/internal/wizard`
+* `go test -tags ",noweb" ./cmd/...`
+* `make wizard-acceptance`
 * `go test ./pkg/config/... ./pkg/transport/... ./pkg/metrics/... ./client/... ./server/...`
-* `go test ./pkg/gateway -count=1`
-* `go test ./client -count=1`
-* `go test ./server -count=1`
+* `./hack/run-mix-bench.sh`

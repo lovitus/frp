@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/fatedier/frp/client"
+	"github.com/fatedier/frp/cmd/internal/wizard"
 	"github.com/fatedier/frp/pkg/config"
 	"github.com/fatedier/frp/pkg/config/source"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
@@ -40,11 +41,17 @@ import (
 )
 
 var (
-	cfgFile          string
-	cfgDir           string
-	showVersion      bool
-	strictConfigMode bool
-	allowUnsafe      []string
+	cfgFile           string
+	cfgDir            string
+	wizardMode        bool
+	wizardServerAddr  string
+	wizardMixPort     string
+	wizardMixToken    string
+	wizardMixTokenB64 string
+	wizardClientID    string
+	showVersion       bool
+	strictConfigMode  bool
+	allowUnsafe       []string
 )
 
 func init() {
@@ -55,6 +62,12 @@ func init() {
 
 	rootCmd.PersistentFlags().StringSliceVarP(&allowUnsafe, "allow-unsafe", "", []string{},
 		fmt.Sprintf("allowed unsafe features, one or more of: %s", strings.Join(security.ClientUnsafeFeatures, ", ")))
+	rootCmd.Flags().BoolVar(&wizardMode, "wizard", false, "run offline interactive quick deploy wizard")
+	rootCmd.Flags().StringVar(&wizardServerAddr, "server-addr", "", "wizard preset frps server address")
+	rootCmd.Flags().StringVar(&wizardMixPort, "mix-bind-port", "", "wizard preset mix bind port")
+	rootCmd.Flags().StringVar(&wizardMixToken, "mix-token", "", "wizard preset mix token")
+	rootCmd.Flags().StringVar(&wizardMixTokenB64, "mix-token-b64", "", "wizard preset base64-encoded mix token")
+	rootCmd.Flags().StringVar(&wizardClientID, "client-id", "", "wizard preset client ID")
 }
 
 var rootCmd = &cobra.Command{
@@ -63,6 +76,25 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if showVersion {
 			fmt.Println(version.Full())
+			return nil
+		}
+		if wizardMode {
+			if err := wizard.RunClient(
+				wizard.RuntimeOptions(os.Stdin, os.Stdout, os.Stderr, "", version.Full()),
+				wizard.ClientConfig{
+					ConfigFile:         cfgFile,
+					ConfigFileExplicit: flagChanged(cmd, "config"),
+					ConfigDir:          cfgDir,
+					ServerAddr:         wizardServerAddr,
+					MixBindPort:        wizardMixPort,
+					MixToken:           wizardMixToken,
+					MixTokenB64:        wizardMixTokenB64,
+					ClientID:           wizardClientID,
+				},
+			); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 			return nil
 		}
 
@@ -111,6 +143,11 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func flagChanged(cmd *cobra.Command, name string) bool {
+	flag := cmd.Flag(name)
+	return flag != nil && flag.Changed
 }
 
 func handleTermSignal(svr *client.Service) {
