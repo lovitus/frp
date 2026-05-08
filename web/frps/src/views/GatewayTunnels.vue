@@ -2157,7 +2157,7 @@ onMounted(() => {
 
 .validity-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
+  grid-template-columns: minmax(0, 1fr) 144px;
   gap: 10px;
   width: 100%;
 }
