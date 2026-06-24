@@ -31,6 +31,8 @@ powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://raw.gi
 ## Behavior
 
 - Auto-detect OS/arch and download matching binary package.
+- On OpenWrt/ImmortalWrt, use `OPENWRT_ARCH` / `opkg print-architecture` to
+  refine ambiguous `uname -m` values such as `mips`, `mips64`, or `arm`.
 - Default to the most recent GitHub release (latest published release).
 - Strict input validation for required fields and ports (`1..65535`).
 - Config files are generated in the current working directory.

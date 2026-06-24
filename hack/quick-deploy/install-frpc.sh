@@ -9,6 +9,7 @@ BINARY_NAME="frpc"
 CFG_NAME="frpc.toml"
 INPUT_FD=0
 HAS_TTY_FD=0
+OS_RELEASE_FILE="${FRP_OS_RELEASE_FILE:-/etc/os-release}"
 
 SERVER_ADDR="${FRP_SERVER_ADDR:-}"
 MIX_BIND_PORT="${FRP_MIX_BIND_PORT:-7001}"
@@ -190,8 +191,55 @@ decode_b64() {
   return 1
 }
 
+read_os_release_var() {
+  local key="$1"
+  [[ -r "$OS_RELEASE_FILE" ]] || return 1
+  awk -F= -v wanted="$key" '
+    $1 == wanted {
+      value = substr($0, index($0, "=") + 1)
+      sub(/\r$/, "", value)
+      if (value ~ /^".*"$/) {
+        sub(/^"/, "", value)
+        sub(/"$/, "", value)
+      }
+      print value
+      exit
+    }
+  ' "$OS_RELEASE_FILE"
+}
+
+detect_linux_arch_hint() {
+  local arch_hint
+  arch_hint="$(read_os_release_var OPENWRT_ARCH 2>/dev/null || true)"
+  if [[ -z "$arch_hint" ]] && command -v opkg >/dev/null 2>&1; then
+    arch_hint="$(opkg print-architecture 2>/dev/null | awk '$1 == "arch" && $2 != "all" { print $2; exit }' || true)"
+  fi
+  printf '%s' "$arch_hint"
+}
+
+normalize_arch_name() {
+  local raw normalized
+  raw="$(trim "$1")"
+  normalized="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+
+  case "$normalized" in
+    x86_64|amd64) printf '%s' "amd64" ;;
+    i386|i486|i586|i686) printf '%s' "386" ;;
+    aarch64|aarch64_*|arm64|arm64_*) printf '%s' "arm64" ;;
+    armv7l|armv7|armhf|armv7_*|arm_cortex-a5*|arm_cortex-a7*|arm_cortex-a8*|arm_cortex-a9*|arm_cortex-a12*|arm_cortex-a15*|arm_cortex-a17*|arm_cortex-a53*) printf '%s' "arm_hf" ;;
+    armv6l|armv6|armv6_*|arm) printf '%s' "arm" ;;
+    mips64el|mips64le|mips64el_*|mips64le_*) printf '%s' "mips64le" ;;
+    mips64|mips64_*) printf '%s' "mips64" ;;
+    mipsel|mipsle|mipsel_*|mipsle_*) printf '%s' "mipsle" ;;
+    mips|mips_*) printf '%s' "mips" ;;
+    riscv64|riscv64_*) printf '%s' "riscv64" ;;
+    loongarch64|loongarch64_*|loong64) printf '%s' "loong64" ;;
+    *) return 1 ;;
+  esac
+}
+
 detect_platform() {
-  local os_name arch_name
+  local os_name arch_name arch_hint normalized_arch
   os_name="$(uname -s)"
   arch_name="$(uname -m)"
 
@@ -212,23 +260,31 @@ detect_platform() {
       ;;
   esac
 
-  case "$arch_name" in
-    x86_64|amd64) DETECTED_ARCH="amd64" ;;
-    i386|i686) DETECTED_ARCH="386" ;;
-    aarch64|arm64) DETECTED_ARCH="arm64" ;;
-    armv7l|armv7|armhf) DETECTED_ARCH="arm_hf" ;;
-    armv6l|arm) DETECTED_ARCH="arm" ;;
-    mips64) DETECTED_ARCH="mips64" ;;
-    mips64el) DETECTED_ARCH="mips64le" ;;
-    mips) DETECTED_ARCH="mips" ;;
-    mipsel) DETECTED_ARCH="mipsle" ;;
-    riscv64) DETECTED_ARCH="riscv64" ;;
-    loongarch64) DETECTED_ARCH="loong64" ;;
-    *)
-      echo "Unsupported architecture: ${arch_name}" >&2
-      exit 1
-      ;;
-  esac
+  normalized_arch="$(normalize_arch_name "$arch_name" || true)"
+
+  # BusyBox/OpenWrt shells often report only "mips", "mips64", or "arm"
+  # from uname -m. Use distro metadata to refine the release asset suffix.
+  if [[ "$DETECTED_OS" == "linux" ]]; then
+    arch_hint="$(detect_linux_arch_hint)"
+    if [[ -n "$arch_hint" ]]; then
+      case "$arch_name" in
+        arm|mips|mips64)
+          normalized_arch="$(normalize_arch_name "$arch_hint" || true)"
+          ;;
+        *)
+          if [[ -z "$normalized_arch" ]]; then
+            normalized_arch="$(normalize_arch_name "$arch_hint" || true)"
+          fi
+          ;;
+      esac
+    fi
+  fi
+
+  if [[ -z "$normalized_arch" ]]; then
+    echo "Unsupported architecture: ${arch_name}" >&2
+    exit 1
+  fi
+  DETECTED_ARCH="$normalized_arch"
 
   if [[ "$DETECTED_OS" == "android" && "$DETECTED_ARCH" != "arm64" ]]; then
     echo "Unsupported Android architecture: ${arch_name}. Current releases provide android_arm64." >&2
@@ -319,6 +375,18 @@ verify_and_smoke_run() {
     echo "You can still run manually after checking server reachability."
   fi
   rm -f "${verify_log}" "${run_log}"
+}
+
+verify_downloaded_binary() {
+  local version_log
+  version_log="$(mktemp)"
+  if ! "./${BINARY_NAME}" --version >"${version_log}" 2>&1; then
+    echo "Downloaded ${BINARY_NAME} for ${DETECTED_OS}_${DETECTED_ARCH}, but it did not execute on this host." >&2
+    cat "${version_log}" >&2
+    rm -f "${version_log}"
+    exit 1
+  fi
+  rm -f "${version_log}"
 }
 
 while (($# > 0)); do
@@ -413,6 +481,7 @@ fi
 
 cp "${pkg_dir}/${BINARY_NAME}" "./${BINARY_NAME}"
 chmod +x "./${BINARY_NAME}"
+verify_downloaded_binary
 
 if [[ -z "$MIX_TOKEN" ]]; then
   echo
