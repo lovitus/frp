@@ -7,13 +7,13 @@ Windows PowerShell quick-deploy scripts are also provided for `frps` and `frpc`.
 ## Entry Script
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | sh -
 ```
 
 Or:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
+curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | sh -
 ```
 
 The script asks whether to deploy `frps` or `frpc`.
@@ -135,33 +135,33 @@ you can skip only that selector while keeping all later prompts interactive:
 
 ```bash
 wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | \
-  bash -s -- --type frpc
+  sh -s -- --type frpc
 ```
 
 or:
 
 ```bash
 wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | \
-  bash -s -- --type frps
+  sh -s -- --type frps
 ```
 
 Deploy server directly:
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.sh | sh -
 ```
 
 Deploy client directly:
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frpc.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frpc.sh | sh -
 ```
 
 Use fixed release tag:
 
 ```bash
 wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install-frps.sh | \
-  bash -s -- --repo lovitus/frp --release-tag v0.68.1-mix.32
+  sh -s -- --repo lovitus/frp --release-tag v0.68.1-mix.32
 ```
 
 Windows server directly:

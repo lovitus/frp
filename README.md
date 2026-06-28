@@ -14,13 +14,13 @@ If you just want to get a working `frps` or `frpc` quickly, start here instead o
 One-command interactive setup on Unix-like systems:
 
 ```bash
-wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
+wget -O- https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | sh -
 ```
 
 or:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | bash -
+curl -fsSL https://raw.githubusercontent.com/lovitus/frp/codex/mix-transport-release/hack/quick-deploy/install.sh | sh -
 ```
 
 One-command interactive setup on Windows PowerShell:
@@ -252,7 +252,7 @@ The frps dashboard can then create runtime TCP or UDP listeners that forward thr
 
 To begin, download the latest program for your operating system and architecture from the [Release](https://github.com/fatedier/frp/releases) page.
 
-For one-command interactive setup (`wget | bash`) of both `frps` and `frpc`, see [Quick Deploy](/doc/quick_deploy.md).
+For one-command interactive setup (`wget | sh`) of both `frps` and `frpc`, see [Quick Deploy](/doc/quick_deploy.md).
 
 Next, place the `frps` binary and server configuration file on Server A, which has a public IP address.
 

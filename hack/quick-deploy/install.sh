@@ -1,12 +1,15 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 REPO="${FRP_REPO:-lovitus/frp}"
 RELEASE_TAG="${FRP_RELEASE_TAG:-}"
 RAW_BASE="${FRP_RAW_BASE:-}"
 MODE=""
-INPUT_FD=0
-HAS_TTY_FD=0
+
+INPUT_SRC=0
+if (true < /dev/tty) 2>/dev/null; then
+  INPUT_SRC="/dev/tty"
+fi
 
 usage() {
   cat <<'EOF'
@@ -18,18 +21,9 @@ Environment overrides:
 EOF
 }
 
-init_input_fd() {
-  if { exec 9<>/dev/tty; } 2>/dev/null; then
-    INPUT_FD=9
-    HAS_TTY_FD=1
-  else
-    INPUT_FD=0
-    HAS_TTY_FD=0
-  fi
-}
-
 http_get() {
-  local url="$1"
+  local url
+  url="$1"
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$url"
     return 0
@@ -43,31 +37,32 @@ http_get() {
 }
 
 read_interactive_line() {
-  local prompt="$1"
-  local value
-  if [[ "$HAS_TTY_FD" -eq 1 ]]; then
-    read -r -p "$prompt" value <&$INPUT_FD || return 1
+  local prompt value
+  prompt="$1"
+  printf "%s" "$prompt" >&2
+  if [ "$INPUT_SRC" = "/dev/tty" ]; then
+    read -r value < /dev/tty || return 1
   else
-    read -r -p "$prompt" value || return 1
+    read -r value || return 1
   fi
   printf '%s' "$value"
 }
 
 trim() {
-  local s="$1"
-  s="$(printf '%s' "$s" | tr -d '\r\n')"
+  local s
+  s="$(printf '%s' "$1" | tr -d '\r\n')"
   s="${s#"${s%%[![:space:]]*}"}"
   s="${s%"${s##*[![:space:]]}"}"
   printf '%s' "$s"
 }
 
 normalize_mode() {
-  local mode="$1"
-  mode="$(trim "$mode")"
+  local mode
+  mode="$(trim "$1")"
   printf '%s' "$mode" | tr '[:upper:]' '[:lower:]'
 }
 
-while (($# > 0)); do
+while [ "$#" -gt 0 ]; do
   case "$1" in
     --type)
       MODE="${2:-}"
@@ -99,27 +94,26 @@ done
 
 MODE="$(normalize_mode "$MODE")"
 
-if [[ -z "$MODE" ]]; then
-  init_input_fd
+if [ -z "$MODE" ]; then
   while true; do
     if ! MODE="$(read_interactive_line "Deploy frps(server) or frpc(client)? [frps/frpc]: ")"; then
       echo "Input aborted." >&2
       exit 1
     fi
     MODE="$(normalize_mode "$MODE")"
-    if [[ "$MODE" == "frps" || "$MODE" == "frpc" ]]; then
+    if [ "$MODE" = "frps" ] || [ "$MODE" = "frpc" ]; then
       break
     fi
     echo "Please enter 'frps' or 'frpc'."
   done
 fi
 
-if [[ "$MODE" != "frps" && "$MODE" != "frpc" ]]; then
+if [ "$MODE" != "frps" ] && [ "$MODE" != "frpc" ]; then
   echo "Error: --type must be frps or frpc." >&2
   exit 1
 fi
 
-if [[ -z "$RAW_BASE" ]]; then
+if [ -z "$RAW_BASE" ]; then
   RAW_BASE="https://raw.githubusercontent.com/${REPO}/codex/mix-transport-release/hack/quick-deploy"
 fi
 
@@ -129,11 +123,11 @@ TARGET_URL="${RAW_BASE}/${TARGET_SCRIPT}"
 echo "Using repo: ${REPO}"
 echo "Fetching: ${TARGET_URL}"
 
-PASS_ARGS=(--repo "$REPO" --raw-base "$RAW_BASE")
-if [[ -n "$RELEASE_TAG" ]]; then
-  PASS_ARGS+=(--release-tag "$RELEASE_TAG")
+set -- --repo "$REPO" --raw-base "$RAW_BASE"
+if [ -n "$RELEASE_TAG" ]; then
+  set -- "$@" --release-tag "$RELEASE_TAG"
 fi
 
 SCRIPT_CONTENT="$(http_get "$TARGET_URL")"
 echo "Starting ${TARGET_SCRIPT}..."
-printf '%s\n' "$SCRIPT_CONTENT" | bash -s -- "${PASS_ARGS[@]}"
+printf '%s\n' "$SCRIPT_CONTENT" | sh -s -- "$@"

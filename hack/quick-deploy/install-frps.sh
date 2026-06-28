@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 REPO="${FRP_REPO:-lovitus/frp}"
 RELEASE_TAG="${FRP_RELEASE_TAG:-}"
@@ -7,8 +7,6 @@ RAW_BASE="${FRP_RAW_BASE:-}"
 
 BINARY_NAME="frps"
 CFG_NAME="frps.toml"
-INPUT_FD=0
-HAS_TTY_FD=0
 OS_RELEASE_FILE="${FRP_OS_RELEASE_FILE:-/etc/os-release}"
 
 BIND_PORT="7000"
@@ -18,6 +16,11 @@ DASHBOARD_ADDR="0.0.0.0"
 DASHBOARD_PORT=""
 DASHBOARD_USER="admin"
 DASHBOARD_PASSWORD=""
+
+INPUT_SRC=0
+if (true < /dev/tty) 2>/dev/null; then
+  INPUT_SRC="/dev/tty"
+fi
 
 usage() {
   cat <<'EOF'
@@ -29,18 +32,9 @@ Environment overrides:
 EOF
 }
 
-init_input_fd() {
-  if { exec 9<>/dev/tty; } 2>/dev/null; then
-    INPUT_FD=9
-    HAS_TTY_FD=1
-  else
-    INPUT_FD=0
-    HAS_TTY_FD=0
-  fi
-}
-
 http_get() {
-  local url="$1"
+  local url
+  url="$1"
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$url"
     return 0
@@ -54,8 +48,9 @@ http_get() {
 }
 
 download_file() {
-  local url="$1"
-  local out="$2"
+  local url out
+  url="$1"
+  out="$2"
   if command -v curl >/dev/null 2>&1; then
     curl -fL "$url" -o "$out"
     return 0
@@ -69,45 +64,35 @@ download_file() {
 }
 
 trim() {
-  local s="$1"
-  s="$(printf '%s' "$s" | tr -d '\r\n')"
+  local s
+  s="$(printf '%s' "$1" | tr -d '\r\n')"
   s="${s#"${s%%[![:space:]]*}"}"
   s="${s%"${s##*[![:space:]]}"}"
   printf '%s' "$s"
 }
 
 read_interactive_line() {
-  local prompt="$1"
-  local secret="${2:-false}"
-  local value
-  if [[ "$HAS_TTY_FD" -eq 1 ]]; then
-    if [[ "$secret" == "true" ]]; then
-      read -r -s -p "$prompt" value <&$INPUT_FD || return 1
-      printf '\n' >&$INPUT_FD
-    else
-      read -r -p "$prompt" value <&$INPUT_FD || return 1
-    fi
+  local prompt value
+  prompt="$1"
+  printf "%s" "$prompt" >&2
+  if [ "$INPUT_SRC" = "/dev/tty" ]; then
+    read -r value < /dev/tty || return 1
   else
-    if [[ "$secret" == "true" ]]; then
-      read -r -s -p "$prompt" value || return 1
-      echo >&2
-    else
-      read -r -p "$prompt" value || return 1
-    fi
+    read -r value || return 1
   fi
   printf '%s' "$value"
 }
 
 prompt_line() {
-  local label="$1"
-  local default_value="${2:-}"
-  local value
-  if [[ -n "$default_value" ]]; then
+  local label default_value value
+  label="$1"
+  default_value="${2:-}"
+  if [ -n "$default_value" ]; then
     if ! value="$(read_interactive_line "${label} [${default_value}]: ")"; then
       return 1
     fi
     value="$(trim "$value")"
-    if [[ -z "$value" ]]; then
+    if [ -z "$value" ]; then
       value="$default_value"
     fi
   else
@@ -116,7 +101,7 @@ prompt_line() {
         return 1
       fi
       value="$(trim "$value")"
-      if [[ -n "$value" ]]; then
+      if [ -n "$value" ]; then
         break
       fi
       echo "This value is required." >&2
@@ -126,16 +111,16 @@ prompt_line() {
 }
 
 prompt_password() {
-  local label="$1"
-  local default_value="${2:-}"
-  local value
+  local label default_value value
+  label="$1"
+  default_value="${2:-}"
   while true; do
-    if [[ -n "$default_value" ]]; then
+    if [ -n "$default_value" ]; then
       if ! value="$(read_interactive_line "${label} [press Enter to use default]: ")"; then
         return 1
       fi
       value="$(trim "$value")"
-      if [[ -z "$value" ]]; then
+      if [ -z "$value" ]; then
         value="$default_value"
       fi
     else
@@ -144,7 +129,7 @@ prompt_password() {
       fi
       value="$(trim "$value")"
     fi
-    if [[ -n "$value" ]]; then
+    if [ -n "$value" ]; then
       printf '%s' "$value"
       return 0
     fi
@@ -153,17 +138,23 @@ prompt_password() {
 }
 
 prompt_port() {
-  local label="$1"
-  local default_value="$2"
-  local value
+  local label default_value value
+  label="$1"
+  default_value="$2"
   while true; do
     if ! value="$(prompt_line "$label" "$default_value")"; then
       return 1
     fi
-    if [[ "$value" =~ ^[0-9]+$ ]] && ((value >= 1 && value <= 65535)); then
-      printf '%s' "$value"
-      return 0
-    fi
+    case "$value" in
+      *[!0-9]*)
+        ;;
+      ?*)
+        if [ "$value" -ge 1 ] && [ "$value" -le 65535 ]; then
+          printf '%s' "$value"
+          return 0
+        fi
+        ;;
+    esac
     echo "Invalid port '${value}'. Expected 1..65535." >&2
   done
 }
@@ -173,8 +164,9 @@ toml_escape() {
 }
 
 read_os_release_var() {
-  local key="$1"
-  [[ -r "$OS_RELEASE_FILE" ]] || return 1
+  local key
+  key="$1"
+  [ -r "$OS_RELEASE_FILE" ] || return 1
   awk -F= -v wanted="$key" '
     $1 == wanted {
       value = substr($0, index($0, "=") + 1)
@@ -192,7 +184,7 @@ read_os_release_var() {
 detect_linux_arch_hint() {
   local arch_hint
   arch_hint="$(read_os_release_var OPENWRT_ARCH 2>/dev/null || true)"
-  if [[ -z "$arch_hint" ]] && command -v opkg >/dev/null 2>&1; then
+  if [ -z "$arch_hint" ] && command -v opkg >/dev/null 2>&1; then
     arch_hint="$(opkg print-architecture 2>/dev/null | awk '$1 == "arch" && $2 != "all" { print $2; exit }' || true)"
   fi
   printf '%s' "$arch_hint"
@@ -226,7 +218,7 @@ detect_platform() {
 
   case "$os_name" in
     Linux)
-      if [[ -n "${ANDROID_ROOT:-}" ]] || uname -o 2>/dev/null | grep -qi 'android'; then
+      if [ -n "${ANDROID_ROOT:-}" ] || (uname -o 2>/dev/null | grep -i 'android' >/dev/null); then
         DETECTED_OS="android"
       else
         DETECTED_OS="linux"
@@ -243,17 +235,15 @@ detect_platform() {
 
   normalized_arch="$(normalize_arch_name "$arch_name" || true)"
 
-  # BusyBox/OpenWrt shells often report only "mips", "mips64", or "arm"
-  # from uname -m. Use distro metadata to refine the release asset suffix.
-  if [[ "$DETECTED_OS" == "linux" ]]; then
+  if [ "$DETECTED_OS" = "linux" ]; then
     arch_hint="$(detect_linux_arch_hint)"
-    if [[ -n "$arch_hint" ]]; then
+    if [ -n "$arch_hint" ]; then
       case "$arch_name" in
         arm|mips|mips64)
           normalized_arch="$(normalize_arch_name "$arch_hint" || true)"
           ;;
         *)
-          if [[ -z "$normalized_arch" ]]; then
+          if [ -z "$normalized_arch" ]; then
             normalized_arch="$(normalize_arch_name "$arch_hint" || true)"
           fi
           ;;
@@ -261,26 +251,26 @@ detect_platform() {
     fi
   fi
 
-  if [[ -z "$normalized_arch" ]]; then
+  if [ -z "$normalized_arch" ]; then
     echo "Unsupported architecture: ${arch_name}" >&2
     exit 1
   fi
   DETECTED_ARCH="$normalized_arch"
 
-  if [[ "$DETECTED_OS" == "android" && "$DETECTED_ARCH" != "arm64" ]]; then
+  if [ "$DETECTED_OS" = "android" ] && [ "$DETECTED_ARCH" != "arm64" ]; then
     echo "Unsupported Android architecture: ${arch_name}. Current releases provide android_arm64." >&2
     exit 1
   fi
 }
 
 resolve_release_json() {
-  if [[ -n "$RELEASE_TAG" ]]; then
+  if [ -n "$RELEASE_TAG" ]; then
     RELEASE_JSON="$(http_get "https://api.github.com/repos/${REPO}/releases/tags/${RELEASE_TAG}")"
   else
     RELEASE_JSON="$(http_get "https://api.github.com/repos/${REPO}/releases/latest")"
   fi
   RELEASE_TAG_RESOLVED="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-  if [[ -z "$RELEASE_TAG_RESOLVED" ]]; then
+  if [ -z "$RELEASE_TAG_RESOLVED" ]; then
     echo "Unable to resolve release tag from GitHub API." >&2
     exit 1
   fi
@@ -288,32 +278,36 @@ resolve_release_json() {
 }
 
 encode_b64() {
-  local raw="$1"
+  local raw
+  raw="$1"
   if command -v base64 >/dev/null 2>&1; then
-    printf '%s' "$raw" | base64 | tr -d '\n'
+    printf '%s' "$raw" | base64 | tr -d '\r\n'
     return 0
   fi
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$raw" | openssl enc -a -A 2>/dev/null | tr -d '\r\n' && return 0
+  fi
   if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import base64,sys;print(base64.b64encode(sys.stdin.buffer.read()).decode(), end="")' <<<"$raw"
+    printf '%s' "$raw" | python3 -c 'import base64,sys;print(base64.b64encode(sys.stdin.buffer.read()).decode(), end="")' 2>/dev/null
     return 0
   fi
   return 1
 }
 
 find_asset_url() {
-	local suffix="$1"
-	local archive="frp_${RELEASE_VERSION}_${suffix}.tar.gz"
-	local asset_url
-	asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep "/${archive}$" | head -n 1 || true)"
-	if [[ -z "$asset_url" ]]; then
-		asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -E "/frp_[^/]+_${suffix}\.tar\.gz$" | head -n 1 || true)"
-		if [[ -n "$asset_url" ]]; then
-			echo "Warning: no exact asset for tag ${RELEASE_TAG_RESOLVED}, using ${asset_url##*/}" >&2
-		fi
-	fi
-	if [[ -z "$asset_url" ]]; then
-		echo "No matching asset found for ${suffix} in release ${RELEASE_TAG_RESOLVED}." >&2
-		exit 1
+  local suffix archive asset_url
+  suffix="$1"
+  archive="frp_${RELEASE_VERSION}_${suffix}.tar.gz"
+  asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep "/${archive}$" | head -n 1 || true)"
+  if [ -z "$asset_url" ]; then
+    asset_url="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -E "/frp_[^/]+_${suffix}\.tar\.gz$" | head -n 1 || true)"
+    if [ -n "$asset_url" ]; then
+      echo "Warning: no exact asset for tag ${RELEASE_TAG_RESOLVED}, using ${asset_url##*/}" >&2
+    fi
+  fi
+  if [ -z "$asset_url" ]; then
+    echo "No matching asset found for ${suffix} in release ${RELEASE_TAG_RESOLVED}." >&2
+    exit 1
   fi
   printf '%s' "$asset_url"
 }
@@ -368,18 +362,6 @@ verify_and_smoke_run() {
   rm -f "${verify_log}" "${run_log}"
 }
 
-verify_downloaded_binary() {
-  local version_log
-  version_log="$(mktemp)"
-  if ! "./${BINARY_NAME}" --version >"${version_log}" 2>&1; then
-    echo "Downloaded ${BINARY_NAME} for ${DETECTED_OS}_${DETECTED_ARCH}, but it did not execute on this host." >&2
-    cat "${version_log}" >&2
-    rm -f "${version_log}"
-    exit 1
-  fi
-  rm -f "${version_log}"
-}
-
 print_next_steps() {
   local token_b64 frpc_url frpc_ps_url
   frpc_url="${RAW_BASE}/install-frpc.sh"
@@ -388,7 +370,7 @@ print_next_steps() {
     echo "Warning: base64 encoder not found; cannot generate preset frpc one-liner." >&2
     token_b64=""
   fi
-  if [[ -n "$token_b64" ]]; then
+  if [ -n "$token_b64" ]; then
   cat <<EOF
 
 Done. Generated files in current directory:
@@ -399,10 +381,10 @@ One-click start command:
   ./${BINARY_NAME} -c ./${CFG_NAME}
 
 Unix/macOS/Linux frpc quick-deploy command (preloaded mix settings):
-  wget -O- ${frpc_url} | bash -s -- --repo ${REPO} --release-tag ${RELEASE_TAG_RESOLVED} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
+  wget -O- ${frpc_url} | sh -s -- --repo ${REPO} --release-tag ${RELEASE_TAG_RESOLVED} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
 
 Curl alternative:
-  curl -fsSL ${frpc_url} | bash -s -- --repo ${REPO} --release-tag ${RELEASE_TAG_RESOLVED} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
+  curl -fsSL ${frpc_url} | sh -s -- --repo ${REPO} --release-tag ${RELEASE_TAG_RESOLVED} --mix-bind-port ${MIX_BIND_PORT} --mix-token-b64 '${token_b64}'
 
 Windows PowerShell frpc quick-deploy command (preloaded mix settings):
   \$env:FRP_REPO='${REPO}'; \$env:FRP_RELEASE_TAG='${RELEASE_TAG_RESOLVED}'; \$env:FRP_MIX_BIND_PORT='${MIX_BIND_PORT}'; \$env:FRP_MIX_TOKEN_B64='${token_b64}'; powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${frpc_ps_url} | iex"
@@ -422,7 +404,7 @@ One-click start command:
   ./${BINARY_NAME} -c ./${CFG_NAME}
 
 Unix/macOS/Linux frpc installer:
-  wget -O- ${frpc_url} | bash -
+  wget -O- ${frpc_url} | sh -
   # then input serverAddr / mixBindPort / password / clientID interactively
 
 Windows PowerShell frpc installer:
@@ -432,7 +414,7 @@ EOF
   fi
 }
 
-while (($# > 0)); do
+while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo)
       REPO="${2:-}"
@@ -458,44 +440,95 @@ while (($# > 0)); do
   esac
 done
 
-if [[ -z "$RAW_BASE" ]]; then
+if [ -z "$RAW_BASE" ]; then
   RAW_BASE="https://raw.githubusercontent.com/${REPO}/codex/mix-transport-release/hack/quick-deploy"
 fi
 
 echo "Repo: ${REPO}"
-init_input_fd
 detect_platform
 echo "Detected platform: ${DETECTED_OS}_${DETECTED_ARCH}"
 resolve_release_json
 echo "Using release: ${RELEASE_TAG_RESOLVED}"
 
-asset_suffix="${DETECTED_OS}_${DETECTED_ARCH}"
-asset_url="$(find_asset_url "${asset_suffix}")"
-echo "Downloading asset: ${asset_url}"
-
-tmp_archive="$(mktemp)"
-tmp_extract="$(mktemp -d)"
-trap 'rm -f "${tmp_archive}"; rm -rf "${tmp_extract}"' EXIT
-
-download_file "${asset_url}" "${tmp_archive}"
-LC_ALL=C tar -xzf "${tmp_archive}" -C "${tmp_extract}"
-
-pkg_dir="$(find "${tmp_extract}" -maxdepth 1 -type d -name "frp_${RELEASE_VERSION}_${asset_suffix}" | head -n 1 || true)"
-if [[ -z "$pkg_dir" ]]; then
-  pkg_dir="$(find "${tmp_extract}" -maxdepth 1 -type d -name "frp_*_${asset_suffix}" | head -n 1 || true)"
+CANDIDATES="${DETECTED_ARCH}"
+if [ "${DETECTED_OS}" = "linux" ]; then
+  case "${DETECTED_ARCH}" in
+    arm64) CANDIDATES="arm64 arm_hf arm" ;;
+    arm_hf) CANDIDATES="arm_hf arm" ;;
+    mips64le) CANDIDATES="mips64le mipsle" ;;
+    mips64) CANDIDATES="mips64 mips" ;;
+  esac
 fi
-if [[ -z "$pkg_dir" ]]; then
-  echo "Extracted package directory not found." >&2
+
+success=0
+for cand in $CANDIDATES; do
+  asset_suffix="${DETECTED_OS}_${cand}"
+  echo "Trying candidate suffix: ${asset_suffix}"
+
+  asset_url=""
+  if ! asset_url="$(find_asset_url "${asset_suffix}" 2>/dev/null)"; then
+    echo "No matching asset for ${asset_suffix} in release." >&2
+    continue
+  fi
+
+  echo "Downloading asset: ${asset_url}"
+  tmp_archive="$(mktemp)"
+  tmp_extract="$(mktemp -d)"
+
+  if ! download_file "${asset_url}" "${tmp_archive}"; then
+    echo "Download failed for ${asset_suffix}." >&2
+    rm -f "${tmp_archive}"
+    rm -rf "${tmp_extract}"
+    continue
+  fi
+
+  if ! (LC_ALL=C tar -xzf "${tmp_archive}" -C "${tmp_extract}" 2>/dev/null); then
+    echo "Extraction failed for ${asset_suffix}." >&2
+    rm -f "${tmp_archive}"
+    rm -rf "${tmp_extract}"
+    continue
+  fi
+
+  pkg_dir=""
+  for d in "${tmp_extract}"/frp_"${RELEASE_VERSION}"_"${asset_suffix}" \
+           "${tmp_extract}"/frp_*_"${asset_suffix}"; do
+    if [ -d "$d" ]; then
+      pkg_dir="$d"
+      break
+    fi
+  done
+
+  if [ -z "$pkg_dir" ] || [ ! -f "${pkg_dir}/${BINARY_NAME}" ]; then
+    echo "Binary not found in extracted package for ${asset_suffix}." >&2
+    rm -f "${tmp_archive}"
+    rm -rf "${tmp_extract}"
+    continue
+  fi
+
+  cp "${pkg_dir}/${BINARY_NAME}" "./${BINARY_NAME}"
+  chmod +x "./${BINARY_NAME}"
+  rm -f "${tmp_archive}"
+  rm -rf "${tmp_extract}"
+
+  version_log="$(mktemp)"
+  if "./${BINARY_NAME}" --version >"${version_log}" 2>&1; then
+    echo "Successfully verified execution of downloaded binary (${asset_suffix})."
+    rm -f "${version_log}"
+    success=1
+    break
+  else
+    echo "Downloaded binary for ${asset_suffix} failed to execute on this host." >&2
+    cat "${version_log}" >&2
+    rm -f "${version_log}"
+    rm -f "./${BINARY_NAME}"
+    echo "Trying next fallback candidate..."
+  fi
+done
+
+if [ "$success" -ne 1 ]; then
+  echo "Error: Failed to download a working ${BINARY_NAME} binary for this system (tried candidates: ${CANDIDATES})." >&2
   exit 1
 fi
-if [[ ! -f "${pkg_dir}/${BINARY_NAME}" ]]; then
-  echo "Binary ${BINARY_NAME} not found in package." >&2
-  exit 1
-fi
-
-cp "${pkg_dir}/${BINARY_NAME}" "./${BINARY_NAME}"
-chmod +x "./${BINARY_NAME}"
-verify_downloaded_binary
 
 echo
 echo "Configure frps (press Enter to accept defaults)"
@@ -517,10 +550,10 @@ if ! DASHBOARD_ADDR="$(prompt_line "dashboard/webServer addr" "${DASHBOARD_ADDR}
 fi
 
 default_dashboard_port=$((MIX_BIND_PORT + 1))
-if ((default_dashboard_port > 65535)); then
+if [ "$default_dashboard_port" -gt 65535 ]; then
   default_dashboard_port=7501
 fi
-if ! DASHBOARD_PORT="$(prompt_port "dashboard/webServer port" "${default_dashboard_port}")"; then
+if ! DASHBOARD_PORT="$(prompt_port "dashboard/webServer port" "$default_dashboard_port")"; then
   echo "Input aborted." >&2
   exit 1
 fi

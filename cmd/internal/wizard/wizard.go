@@ -680,7 +680,7 @@ func unixQuickDeployCommand(tool, url string, pinned bool, releaseTag string, mi
 	default:
 		prefix = "wget -O- " + posixQuote(url)
 	}
-	args := []string{"bash", "-s", "--", "--repo", DefaultRepo}
+	args := []string{"sh", "-s", "--", "--repo", DefaultRepo}
 	if pinned {
 		args = append(args, "--release-tag", releaseTag)
 	}

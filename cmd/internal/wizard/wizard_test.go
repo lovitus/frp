@@ -128,6 +128,7 @@ webServer.password = "secret"
 	require.Equal(t, 2*time.Second, runner.smokeCalls[0].wait)
 	require.Contains(t, stdout.String(), "--release-tag v0.68.1-mix.16")
 	require.Contains(t, stdout.String(), "--mix-token-b64")
+	require.Contains(t, stdout.String(), "install-frpc.sh | sh -s --")
 	require.Contains(t, stdout.String(), "Unix/macOS/Linux local frpc wizard command")
 	require.Contains(t, stdout.String(), "./frpc --wizard")
 	require.Contains(t, stdout.String(), "Windows PowerShell local frpc wizard command")

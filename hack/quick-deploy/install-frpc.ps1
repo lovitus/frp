@@ -214,7 +214,6 @@ if ($presetMode) {
     Write-Host 'Preset mode detected.'
     $ServerAddr = Prompt-Line -Label 'serverAddr' -DefaultValue $ServerAddr
     $ClientID = Prompt-Line -Label 'clientID' -DefaultValue $ClientID
-    $MixBindPort = Prompt-Port -Label 'mixBindPort' -DefaultValue $MixBindPort
 } else {
     Write-Host 'Standalone mode.'
     $MixBindPort = Prompt-Port -Label 'mixBindPort' -DefaultValue $MixBindPort
