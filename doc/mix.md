@@ -101,6 +101,31 @@ consult the UDP admission tables. A network-level UDP flood can still affect
 TCP by exhausting bandwidth, CPU, conntrack, or interrupt capacity, so upstream
 DDoS controls remain necessary.
 
+## Network Changes And Port Ownership
+
+Standalone frpc follows the operating system routing table for new dials. When
+an existing control transport stops making progress, its TCP mux keepalive,
+QUIC idle timeout, or application heartbeat closes the connector and the normal
+login loop rebuilds the control and work connections. Leave
+`transport.connectServerLocalIP` empty on clients whose DHCP address or active
+interface can change; pinning a local address intentionally prevents a new dial
+after that address disappears.
+
+Mobile VPN hosts should keep platform network monitoring outside frp. Protect
+frpc sockets from the VPN loop with the platform VPN API, debounce noisy network
+callbacks, and close the current frpc service only when the effective network
+identity, local address, or default route changes. A Wi-Fi roam or DHCP renewal
+that preserves those values should not tear down healthy connections. Airplane
+mode, Wi-Fi/cellular handoff, a changed DHCP address, and VPN route replacement
+should rebuild the service so KCP and QUIC do not wait for their idle timeout.
+
+Embedded Gateway helper listeners bind to `127.0.0.1:0`, allowing the kernel to
+choose an unused private port. User-facing frps, visitor, web, and proxy ports
+remain fixed: an address-in-use error is reported instead of silently selecting
+another port, because peers and published configurations depend on the requested
+port. A supervisor may retry the same bind briefly after a service or VPN restart,
+but changing a fixed port requires an explicit configuration update.
+
 ## Testing Coverage
 
 Automated coverage for mix is split across:
@@ -136,6 +161,7 @@ The client and server emit mix-specific logs for:
 
 - `ss-udp` is not implemented.
 - `mix` keeps the existing single-control-connection model. Fallback and failback allow a short interruption.
+- Without a platform network-change callback, recovery waits for transport keepalive, idle timeout, or heartbeat failure detection.
 - TCP raw `mix` auth uses an explicit magic prefix, so raw TCP is matched before Shadowsocks decryption when that prefix is present.
 - The server exposes `frp_server_client_selected_protocol_counts{selected_protocol="..."}` for online clients grouped by active transport.
 - Host-level fallback is currently a client-side extension. The server still only needs the same `mixBindPort` and `mixToken` transport configuration.
