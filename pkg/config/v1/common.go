@@ -20,6 +20,12 @@ import (
 	"github.com/fatedier/frp/pkg/util/util"
 )
 
+const (
+	DefaultMaxUDPPendingPeers = 4096
+	DefaultMaxUDPPeerRoutes   = 65536
+	DefaultMaxUDPSessions     = 1024
+)
+
 type AuthScope string
 
 const (

@@ -56,6 +56,7 @@ func Convert_ClientCommonConf_To_v1(conf *ClientCommonConf) *v1.ClientCommonConf
 	out.NatHoleSTUNServer = conf.NatHoleSTUNServer
 	out.Transport.DialServerTimeout = conf.DialServerTimeout
 	out.Transport.DialServerKeepAlive = conf.DialServerKeepAlive
+	out.Transport.MaxUDPSessions = conf.MaxUDPSessions
 	out.Transport.ConnectServerLocalIP = conf.ConnectServerLocalIP
 	out.Transport.ProxyURL = conf.HTTPProxy
 	out.Transport.PoolCount = conf.PoolCount
@@ -157,6 +158,8 @@ func Convert_ServerCommonConf_To_v1(conf *ServerCommonConf) *v1.ServerConfig {
 	out.Transport.TCPMuxKeepaliveInterval = conf.TCPMuxKeepaliveInterval
 	out.Transport.TCPKeepAlive = conf.TCPKeepAlive
 	out.Transport.MaxPoolCount = conf.MaxPoolCount
+	out.Transport.MaxUDPPendingPeers = conf.MaxUDPPendingPeers
+	out.Transport.MaxUDPPeerRoutes = conf.MaxUDPPeerRoutes
 	out.Transport.HeartbeatTimeout = conf.HeartbeatTimeout
 
 	out.Transport.TLS.Force = conf.TLSOnly

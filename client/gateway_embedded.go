@@ -24,9 +24,12 @@ import (
 
 	gatewaypkg "github.com/fatedier/frp/pkg/gateway"
 	"github.com/fatedier/frp/pkg/msg"
+	udppkg "github.com/fatedier/frp/pkg/proto/udp"
 )
 
 const gatewayUDPBufSize = 64 * 1024
+
+var errGatewayUDPSessionsFull = errors.New("gateway udp session limit reached")
 
 const (
 	gatewaySingSSPacketHeadroom = shadowaead_2022.PacketNonceSize +
@@ -79,23 +82,24 @@ func (s *gatewayUDPService) Close() error {
 	return nil
 }
 
-func newGatewayEmbeddedService(cfg msg.GatewayTunnelConfig) (gatewayEmbeddedService, error) {
+func newGatewayEmbeddedService(cfg msg.GatewayTunnelConfig, maxUDPSessions int) (gatewayEmbeddedService, error) {
+	limiter := udppkg.NewSessionLimiter(maxUDPSessions)
 	switch cfg.TargetType {
 	case gatewaypkg.TargetTypeSSProxy:
 		switch cfg.Protocol {
 		case "tcp":
 			return newShadowsocksTCPService(cfg)
 		case "udp":
-			return newShadowsocksUDPService(cfg)
+			return newShadowsocksUDPService(cfg, limiter)
 		default:
 			return nil, errors.New("unsupported protocol for ss proxy")
 		}
 	case gatewaypkg.TargetTypeSingSSProxy:
 		switch cfg.Protocol {
 		case "tcp":
-			return newSingShadowsocksTCPService(cfg)
+			return newSingShadowsocksTCPService(cfg, limiter)
 		case "udp":
-			return newSingShadowsocksUDPService(cfg)
+			return newSingShadowsocksUDPService(cfg, limiter)
 		default:
 			return nil, errors.New("unsupported protocol for sing ss proxy")
 		}
@@ -131,14 +135,15 @@ func canReuseGatewayEmbeddedService(prev, next msg.GatewayTunnelConfig) bool {
 }
 
 type gatewaySingSSHandler struct {
-	uotEnabled bool
-	uotVersion int
+	uotEnabled     bool
+	uotVersion     int
+	sessionLimiter *udppkg.SessionLimiter
 }
 
 func (h *gatewaySingSSHandler) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
 	defer conn.Close()
 	if h.uotEnabled && isGatewayUOTDestination(metadata.Destination, h.uotVersion) {
-		packetConn := newGatewayMultiUDPConn(gatewaypkg.GatewaySingSSUDPTimeout)
+		packetConn := newGatewayMultiUDPConn(gatewaypkg.GatewaySingSSUDPTimeout, h.sessionLimiter)
 		uotConn := uot.NewServerConn(packetConn, h.uotVersion)
 		defer uotConn.Close()
 		return relayGatewayTCPAndClose(conn, uotConn)
@@ -153,13 +158,13 @@ func (h *gatewaySingSSHandler) NewConnection(ctx context.Context, conn net.Conn,
 }
 
 func (h *gatewaySingSSHandler) NewPacketConnection(ctx context.Context, conn N.PacketConn, metadata M.Metadata) error {
-	return relayGatewaySingSSUDPConn(ctx, conn)
+	return relayGatewaySingSSUDPConn(ctx, conn, h.sessionLimiter)
 }
 
 func (h *gatewaySingSSHandler) NewError(context.Context, error) {}
 
-func newSingShadowsocksTCPService(cfg msg.GatewayTunnelConfig) (gatewayEmbeddedService, error) {
-	handler := &gatewaySingSSHandler{uotEnabled: cfg.UOTEnabled, uotVersion: cfg.UOTVersion}
+func newSingShadowsocksTCPService(cfg msg.GatewayTunnelConfig, limiter *udppkg.SessionLimiter) (gatewayEmbeddedService, error) {
+	handler := &gatewaySingSSHandler{uotEnabled: cfg.UOTEnabled, uotVersion: cfg.UOTVersion, sessionLimiter: limiter}
 	service, err := gatewaypkg.NewGatewaySingSSService(cfg.SSMethod, cfg.SSPassword, handler)
 	if err != nil {
 		return nil, err
@@ -189,8 +194,8 @@ func newSingShadowsocksTCPService(cfg msg.GatewayTunnelConfig) (gatewayEmbeddedS
 	return svc, nil
 }
 
-func newSingShadowsocksUDPService(cfg msg.GatewayTunnelConfig) (gatewayEmbeddedService, error) {
-	handler := &gatewaySingSSHandler{}
+func newSingShadowsocksUDPService(cfg msg.GatewayTunnelConfig, limiter *udppkg.SessionLimiter) (gatewayEmbeddedService, error) {
+	handler := &gatewaySingSSHandler{sessionLimiter: limiter}
 	service, err := gatewaypkg.NewGatewaySingSSService(cfg.SSMethod, cfg.SSPassword, handler)
 	if err != nil {
 		return nil, err
@@ -247,8 +252,9 @@ type gatewayUDPUpstream struct {
 }
 
 type gatewayMultiUDPConn struct {
-	timeout   time.Duration
-	localAddr net.Addr
+	timeout        time.Duration
+	sessionLimiter *udppkg.SessionLimiter
+	localAddr      net.Addr
 
 	mu        sync.Mutex
 	sessions  map[string]*gatewayUDPUpstream
@@ -257,13 +263,14 @@ type gatewayMultiUDPConn struct {
 	once      sync.Once
 }
 
-func newGatewayMultiUDPConn(timeout time.Duration) *gatewayMultiUDPConn {
+func newGatewayMultiUDPConn(timeout time.Duration, limiter *udppkg.SessionLimiter) *gatewayMultiUDPConn {
 	return &gatewayMultiUDPConn{
-		timeout:   timeout,
-		localAddr: &net.UDPAddr{IP: net.IPv4zero, Port: 0},
-		sessions:  make(map[string]*gatewayUDPUpstream),
-		responses: make(chan gatewayUDPPacket, 64),
-		closed:    make(chan struct{}),
+		timeout:        timeout,
+		sessionLimiter: limiter,
+		localAddr:      &net.UDPAddr{IP: net.IPv4zero, Port: 0},
+		sessions:       make(map[string]*gatewayUDPUpstream),
+		responses:      make(chan gatewayUDPPacket, 64),
+		closed:         make(chan struct{}),
 	}
 }
 
@@ -281,6 +288,9 @@ func (c *gatewayMultiUDPConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 		return 0, errors.New("missing udp destination")
 	}
 	session, err := c.session(addr)
+	if errors.Is(err, errGatewayUDPSessionsFull) {
+		return len(p), nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -293,7 +303,9 @@ func (c *gatewayMultiUDPConn) Close() error {
 		c.mu.Lock()
 		for key, session := range c.sessions {
 			delete(c.sessions, key)
-			_ = session.conn.Close()
+			if session.conn != nil {
+				_ = session.conn.Close()
+			}
 		}
 		c.mu.Unlock()
 	})
@@ -309,16 +321,39 @@ func (c *gatewayMultiUDPConn) session(addr net.Addr) (*gatewayUDPUpstream, error
 	key := addr.String()
 	c.mu.Lock()
 	if session := c.sessions[key]; session != nil {
+		if session.conn == nil {
+			c.mu.Unlock()
+			return nil, errGatewayUDPSessionsFull
+		}
 		c.mu.Unlock()
 		return session, nil
 	}
+	if !c.sessionLimiter.TryAcquire() {
+		c.mu.Unlock()
+		return nil, errGatewayUDPSessionsFull
+	}
+	session := &gatewayUDPUpstream{addr: addr}
+	c.sessions[key] = session
+	c.mu.Unlock()
+
 	sessionConn, err := net.Dial("udp", addr.String())
 	if err != nil {
+		c.mu.Lock()
+		if c.sessions[key] == session {
+			delete(c.sessions, key)
+		}
 		c.mu.Unlock()
+		c.sessionLimiter.Release()
 		return nil, err
 	}
-	session := &gatewayUDPUpstream{conn: sessionConn, addr: addr}
-	c.sessions[key] = session
+	c.mu.Lock()
+	if c.sessions[key] != session {
+		c.mu.Unlock()
+		_ = sessionConn.Close()
+		c.sessionLimiter.Release()
+		return nil, net.ErrClosed
+	}
+	session.conn = sessionConn
 	c.mu.Unlock()
 	go c.readSession(key, session)
 	return session, nil
@@ -332,6 +367,7 @@ func (c *gatewayMultiUDPConn) readSession(key string, session *gatewayUDPUpstrea
 		}
 		c.mu.Unlock()
 		_ = session.conn.Close()
+		c.sessionLimiter.Release()
 	}()
 	buffer := make([]byte, gatewayUDPBufSize)
 	for {
@@ -352,9 +388,9 @@ func (c *gatewayMultiUDPConn) readSession(key string, session *gatewayUDPUpstrea
 	}
 }
 
-func relayGatewaySingSSUDPConn(ctx context.Context, conn N.PacketConn) error {
+func relayGatewaySingSSUDPConn(ctx context.Context, conn N.PacketConn, limiter *udppkg.SessionLimiter) error {
 	defer conn.Close()
-	udpConn := newGatewayMultiUDPConn(gatewaypkg.GatewaySingSSUDPTimeout)
+	udpConn := newGatewayMultiUDPConn(gatewaypkg.GatewaySingSSUDPTimeout, limiter)
 	defer udpConn.Close()
 
 	errCh := make(chan error, 2)
@@ -537,14 +573,16 @@ func isExpectedGatewayRelayClose(err error) bool {
 
 type gatewayNATMap struct {
 	sync.RWMutex
-	entries map[string]net.PacketConn
-	timeout time.Duration
+	entries        map[string]net.PacketConn
+	timeout        time.Duration
+	sessionLimiter *udppkg.SessionLimiter
 }
 
-func newGatewayNATMap(timeout time.Duration) *gatewayNATMap {
+func newGatewayNATMap(timeout time.Duration, limiter *udppkg.SessionLimiter) *gatewayNATMap {
 	return &gatewayNATMap{
-		entries: make(map[string]net.PacketConn),
-		timeout: timeout,
+		entries:        make(map[string]net.PacketConn),
+		timeout:        timeout,
+		sessionLimiter: limiter,
 	}
 }
 
@@ -554,31 +592,29 @@ func (m *gatewayNATMap) Get(key string) net.PacketConn {
 	return m.entries[key]
 }
 
-func (m *gatewayNATMap) Set(key string, pc net.PacketConn) {
+func (m *gatewayNATMap) Add(peer net.Addr, dst, src net.PacketConn) bool {
+	key := peer.String()
 	m.Lock()
-	defer m.Unlock()
-	m.entries[key] = pc
-}
-
-func (m *gatewayNATMap) Del(key string) net.PacketConn {
-	m.Lock()
-	defer m.Unlock()
-	pc := m.entries[key]
-	delete(m.entries, key)
-	return pc
-}
-
-func (m *gatewayNATMap) Add(peer net.Addr, dst, src net.PacketConn) {
-	m.Set(peer.String(), src)
+	if m.entries[key] != nil || !m.sessionLimiter.TryAcquire() {
+		m.Unlock()
+		return false
+	}
+	m.entries[key] = src
+	m.Unlock()
 	go func() {
 		_ = timedCopyGatewayUDP(dst, peer, src, m.timeout)
-		if pc := m.Del(peer.String()); pc != nil {
-			_ = pc.Close()
+		m.Lock()
+		if m.entries[key] == src {
+			delete(m.entries, key)
 		}
+		m.Unlock()
+		_ = src.Close()
+		m.sessionLimiter.Release()
 	}()
+	return true
 }
 
-func newShadowsocksUDPService(cfg msg.GatewayTunnelConfig) (gatewayEmbeddedService, error) {
+func newShadowsocksUDPService(cfg msg.GatewayTunnelConfig, limiter *udppkg.SessionLimiter) (gatewayEmbeddedService, error) {
 	ciph, err := sscore.PickCipher(cfg.SSMethod, nil, cfg.SSPassword)
 	if err != nil {
 		return nil, err
@@ -593,12 +629,12 @@ func newShadowsocksUDPService(cfg msg.GatewayTunnelConfig) (gatewayEmbeddedServi
 	}
 	host, port := splitHostPort(pc.LocalAddr())
 	svc := &gatewayUDPService{conn: pc, host: host, port: port}
-	go runShadowsocksUDPServer(pc)
+	go runShadowsocksUDPServer(pc, limiter)
 	return svc, nil
 }
 
-func runShadowsocksUDPServer(conn net.PacketConn) {
-	nm := newGatewayNATMap(30 * time.Second)
+func runShadowsocksUDPServer(conn net.PacketConn, limiter *udppkg.SessionLimiter) {
+	nm := newGatewayNATMap(30*time.Second, limiter)
 	buf := make([]byte, gatewayUDPBufSize)
 	for {
 		n, raddr, err := conn.ReadFrom(buf)
@@ -620,7 +656,10 @@ func runShadowsocksUDPServer(conn net.PacketConn) {
 			if err != nil {
 				continue
 			}
-			nm.Add(raddr, conn, pc)
+			if !nm.Add(raddr, conn, pc) {
+				_ = pc.Close()
+				continue
+			}
 		}
 		_, _ = pc.WriteTo(payload, targetAddr)
 	}

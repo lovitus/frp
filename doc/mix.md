@@ -63,6 +63,44 @@ Failback walks the same flattened queue from the beginning up to the candidate j
 - Failback probes higher-priority transports periodically when the active transport is not the first one in the list.
 - When `mix` is enabled, the initial `loginFailExit` behavior is ignored so startup can keep retrying across protocols.
 
+## UDP Resource Limits
+
+`frps` keeps unauthenticated and authenticated UDP peers in separate bounded
+route tables. KCP and QUIC have independent pending quotas, so packets that fill
+one protocol's pending table do not consume the other protocol's quota.
+
+```toml
+# Defaults shown explicitly; both fields are optional.
+transport.maxUDPPendingPeers = 4096
+transport.maxUDPPeerRoutes = 65536
+```
+
+`maxUDPPendingPeers` applies independently to each mix UDP protocol. Pending
+peers have a 10-second absolute lifetime and are promoted only after token
+verification. `maxUDPPeerRoutes` applies to the combined authenticated KCP and
+QUIC route table. At capacity, frps drops packets from unknown peers rather than
+evicting established routes.
+
+`frpc` separately bounds sockets and goroutines created for UDP/SUDP and
+embedded Gateway UDP forwarding:
+
+```toml
+# Default shown explicitly; this field is optional.
+transport.maxUDPSessions = 1024
+```
+
+The frpc limit is shared by each UDP/SUDP proxy or embedded Gateway service.
+Existing remote addresses continue to work at capacity; packets for unknown
+addresses are dropped until a slot is released. On memory-constrained embedded
+devices, `128` or `256` is a more conservative starting point. This common
+transport setting requires an frpc restart to take effect.
+
+These settings do not apply to XTCP, NAT hole-punching probes, or direct tunnels
+created by `pkg/nathole`. TCP transports use independent listeners and do not
+consult the UDP admission tables. A network-level UDP flood can still affect
+TCP by exhausting bandwidth, CPU, conntrack, or interrupt capacity, so upstream
+DDoS controls remain necessary.
+
 ## Testing Coverage
 
 Automated coverage for mix is split across:

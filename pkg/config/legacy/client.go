@@ -59,6 +59,8 @@ type ClientCommonConf struct {
 	// DialServerKeepAlive specifies the interval between keep-alive probes for an active network connection between frpc and frps.
 	// If negative, keep-alive probes are disabled.
 	DialServerKeepAlive int64 `ini:"dial_server_keepalive" json:"dial_server_keepalive"`
+	// MaxUDPSessions limits sessions for each UDP/SUDP proxy or gateway instance.
+	MaxUDPSessions int `ini:"max_udp_sessions" json:"max_udp_sessions"`
 	// ConnectServerLocalIP specifies the address of the client bind when it connect to server.
 	// By default, this value is empty.
 	// this value only use in TCP/Websocket protocol. Not support in KCP protocol.

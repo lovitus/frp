@@ -163,6 +163,10 @@ type ServerCommonConf struct {
 	// MaxPoolCount specifies the maximum pool size for each proxy. By default,
 	// this value is 5.
 	MaxPoolCount int64 `ini:"max_pool_count" json:"max_pool_count"`
+	// MaxUDPPendingPeers limits unauthenticated peers for each mix UDP protocol.
+	MaxUDPPendingPeers int `ini:"max_udp_pending_peers" json:"max_udp_pending_peers"`
+	// MaxUDPPeerRoutes limits authenticated mix UDP peer routes.
+	MaxUDPPeerRoutes int `ini:"max_udp_peer_routes" json:"max_udp_peer_routes"`
 	// MaxPortsPerClient specifies the maximum number of ports a single client
 	// may proxy to. If this value is 0, no limit will be applied. By default,
 	// this value is 0.

@@ -35,6 +35,10 @@ kcpBindPort = 7000
 # Pool count in each proxy will keep no more than maxPoolCount.
 transport.maxPoolCount = 5
 
+# Maximum unauthenticated peers per mix UDP protocol and authenticated UDP routes.
+# transport.maxUDPPendingPeers = 4096
+# transport.maxUDPPeerRoutes = 65536
+
 # If tcp stream multiplexing is used, default is true
 # transport.tcpMux = true
 

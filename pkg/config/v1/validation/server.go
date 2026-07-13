@@ -63,6 +63,12 @@ func (v *ConfigValidator) ValidateServerConfig(c *v1.ServerConfig) (Warning, err
 
 	errs = AppendError(errs, ValidatePort(c.BindPort, "bindPort"))
 	errs = AppendError(errs, validateServerMixConfig(c))
+	if c.Transport.MaxUDPPendingPeers < 0 {
+		errs = AppendError(errs, fmt.Errorf("transport.maxUDPPendingPeers must not be negative"))
+	}
+	if c.Transport.MaxUDPPeerRoutes < 0 {
+		errs = AppendError(errs, fmt.Errorf("transport.maxUDPPeerRoutes must not be negative"))
+	}
 	errs = AppendError(errs, ValidatePort(c.KCPBindPort, "kcpBindPort"))
 	errs = AppendError(errs, ValidatePort(c.QUICBindPort, "quicBindPort"))
 	errs = AppendError(errs, ValidatePort(c.VhostHTTPPort, "vhostHTTPPort"))

@@ -86,11 +86,17 @@ func (m *GatewayTunnelManager) ApplyGatewayTunnels(tunnels []msg.GatewayTunnelCo
 		}
 		if cfg.TargetType != gatewaypkg.TargetTypeDirect {
 			createdEmbedded := false
+			// Common transport settings are fixed for the lifetime of the client;
+			// config reloads only rebuild proxy and visitor configurers.
 			if prev, ok := previous[cfg.ID]; ok && prev.embedded != nil && canReuseGatewayEmbeddedService(prev.config, cfg) {
 				runtime.embedded = prev.embedded
 				reusedEmbedded[runtime.embedded] = struct{}{}
 			} else {
-				svc, err := newGatewayEmbeddedService(cfg)
+				maxUDPSessions := v1.DefaultMaxUDPSessions
+				if m.service != nil && m.service.common != nil && m.service.common.Transport.MaxUDPSessions > 0 {
+					maxUDPSessions = m.service.common.Transport.MaxUDPSessions
+				}
+				svc, err := newGatewayEmbeddedService(cfg, maxUDPSessions)
 				if err != nil {
 					runtime.validationErr = err.Error()
 					next[cfg.ID] = runtime

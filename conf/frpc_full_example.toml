@@ -107,6 +107,10 @@ webServer.pprofEnable = false
 # connections will be established in advance, default value is zero
 transport.poolCount = 5
 
+# Maximum sessions for each UDP/SUDP proxy or embedded gateway UDP instance.
+# Embedded devices may prefer 128 or 256.
+# transport.maxUDPSessions = 1024
+
 # If tcp stream multiplexing is used, default is true, it must be same with frps
 # transport.tcpMux = true
 

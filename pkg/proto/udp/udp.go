@@ -70,25 +70,38 @@ func ForwardUserConn(udpConn *net.UDPConn, readCh <-chan *msg.UDPPacket, sendCh 
 	}
 }
 
-func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<- msg.Message, bufSize int, proxyProtocolVersion string) {
+func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<- msg.Message, bufSize int, proxyProtocolVersion string, maxSessions int) {
+	ForwarderWithLimiter(dstAddr, readCh, sendCh, bufSize, proxyProtocolVersion, NewSessionLimiter(maxSessions))
+}
+
+func ForwarderWithLimiter(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<- msg.Message, bufSize int, proxyProtocolVersion string, limiter *SessionLimiter) {
+	const maxPendingPackets = 8
 	var mu sync.RWMutex
-	udpConnMap := make(map[string]*net.UDPConn)
+	type session struct {
+		mu      sync.Mutex
+		conn    *net.UDPConn
+		pending [][]byte
+	}
+	udpConnMap := make(map[string]*session)
 
 	// read from dstAddr and write to sendCh
-	writerFn := func(raddr *net.UDPAddr, udpConn *net.UDPConn) {
+	writerFn := func(raddr *net.UDPAddr, s *session) {
 		addr := raddr.String()
 		defer func() {
 			mu.Lock()
-			delete(udpConnMap, addr)
+			if udpConnMap[addr] == s {
+				delete(udpConnMap, addr)
+			}
 			mu.Unlock()
-			udpConn.Close()
+			s.conn.Close()
+			limiter.Release()
 		}()
 
 		buf := pool.GetBuf(bufSize)
 		defer pool.PutBuf(buf)
 		for {
-			_ = udpConn.SetReadDeadline(time.Now().Add(30 * time.Second))
-			n, _, err := udpConn.ReadFromUDP(buf)
+			_ = s.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+			n, _, err := s.conn.ReadFromUDP(buf)
 			if err != nil {
 				return
 			}
@@ -107,44 +120,95 @@ func Forwarder(dstAddr *net.UDPAddr, readCh <-chan *msg.UDPPacket, sendCh chan<-
 
 	// read from readCh
 	go func() {
+		defer func() {
+			mu.Lock()
+			sessions := make([]*session, 0, len(udpConnMap))
+			for key, s := range udpConnMap {
+				delete(udpConnMap, key)
+				sessions = append(sessions, s)
+			}
+			mu.Unlock()
+
+			for _, s := range sessions {
+				s.mu.Lock()
+				conn := s.conn
+				s.mu.Unlock()
+				if conn != nil {
+					_ = conn.Close()
+				}
+			}
+		}()
+
 		for udpMsg := range readCh {
+			if udpMsg.RemoteAddr == nil {
+				continue
+			}
 			buf, err := GetContent(udpMsg)
 			if err != nil {
 				continue
 			}
 
-			mu.Lock()
-			udpConn, ok := udpConnMap[udpMsg.RemoteAddr.String()]
-			if !ok {
-				udpConn, err = net.DialUDP("udp", nil, dstAddr)
-				if err != nil {
-					mu.Unlock()
-					continue
+			key := udpMsg.RemoteAddr.String()
+			mu.RLock()
+			s := udpConnMap[key]
+			mu.RUnlock()
+			if s != nil {
+				s.mu.Lock()
+				if s.conn != nil {
+					_, _ = s.conn.Write(buf)
+				} else if len(s.pending) < maxPendingPackets {
+					s.pending = append(s.pending, append([]byte(nil), buf...))
 				}
-				udpConnMap[udpMsg.RemoteAddr.String()] = udpConn
+				s.mu.Unlock()
+				continue
 			}
+
+			mu.Lock()
+			if udpConnMap[key] != nil || !limiter.TryAcquire() {
+				mu.Unlock()
+				continue
+			}
+			s = &session{pending: [][]byte{append([]byte(nil), buf...)}}
+			udpConnMap[key] = s
 			mu.Unlock()
 
-			// Add proxy protocol header if configured (only for the first packet of a new connection)
-			if !ok && proxyProtocolVersion != "" && udpMsg.RemoteAddr != nil {
-				ppBuf, err := netpkg.BuildProxyProtocolHeader(udpMsg.RemoteAddr, dstAddr, proxyProtocolVersion)
-				if err == nil {
-					// Prepend proxy protocol header to the UDP payload
-					finalBuf := make([]byte, len(ppBuf)+len(buf))
-					copy(finalBuf, ppBuf)
-					copy(finalBuf[len(ppBuf):], buf)
-					buf = finalBuf
+			raddr := udpMsg.RemoteAddr
+			go func() {
+				udpConn, dialErr := net.DialUDP("udp", nil, dstAddr)
+				if dialErr != nil {
+					mu.Lock()
+					if udpConnMap[key] == s {
+						delete(udpConnMap, key)
+					}
+					mu.Unlock()
+					limiter.Release()
+					return
 				}
-			}
-
-			_, err = udpConn.Write(buf)
-			if err != nil {
-				udpConn.Close()
-			}
-
-			if !ok {
-				go writerFn(udpMsg.RemoteAddr, udpConn)
-			}
+				mu.Lock()
+				if udpConnMap[key] != s {
+					mu.Unlock()
+					udpConn.Close()
+					limiter.Release()
+					return
+				}
+				s.mu.Lock()
+				mu.Unlock()
+				for i, payload := range s.pending {
+					if i == 0 && proxyProtocolVersion != "" {
+						ppBuf, err := netpkg.BuildProxyProtocolHeader(raddr, dstAddr, proxyProtocolVersion)
+						if err == nil {
+							payload = append(ppBuf, payload...)
+						}
+					}
+					if _, err := udpConn.Write(payload); err != nil {
+						break
+					}
+				}
+				s.pending = nil
+				s.conn = udpConn
+				s.mu.Unlock()
+				writerFn(raddr, s)
+			}()
 		}
 	}()
 }

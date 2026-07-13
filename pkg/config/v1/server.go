@@ -169,6 +169,10 @@ type AuthOIDCServerConfig struct {
 }
 
 type ServerTransportConfig struct {
+	// MaxUDPPendingPeers limits unauthenticated peers for each mix UDP protocol.
+	MaxUDPPendingPeers int `json:"maxUDPPendingPeers,omitempty"`
+	// MaxUDPPeerRoutes limits authenticated mix UDP peer routes.
+	MaxUDPPeerRoutes int `json:"maxUDPPeerRoutes,omitempty"`
 	// TCPMux toggles TCP stream multiplexing. This allows multiple requests
 	// from a client to share a single TCP connection. By default, this value
 	// is true.
@@ -194,6 +198,8 @@ type ServerTransportConfig struct {
 }
 
 func (c *ServerTransportConfig) Complete() {
+	c.MaxUDPPendingPeers = util.EmptyOr(c.MaxUDPPendingPeers, DefaultMaxUDPPendingPeers)
+	c.MaxUDPPeerRoutes = util.EmptyOr(c.MaxUDPPeerRoutes, DefaultMaxUDPPeerRoutes)
 	c.TCPMux = util.EmptyOr(c.TCPMux, lo.ToPtr(true))
 	c.TCPMuxKeepaliveInterval = util.EmptyOr(c.TCPMuxKeepaliveInterval, 30)
 	c.TCPKeepAlive = util.EmptyOr(c.TCPKeepAlive, 7200)

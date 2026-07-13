@@ -43,9 +43,10 @@ type UDPProxy struct {
 	readCh    chan *msg.UDPPacket
 
 	// include msg.UDPPacket and msg.Ping
-	sendCh   chan msg.Message
-	workConn net.Conn
-	closed   bool
+	sendCh         chan msg.Message
+	workConn       net.Conn
+	closed         bool
+	sessionLimiter *udp.SessionLimiter
 }
 
 func NewUDPProxy(baseProxy *BaseProxy, cfg v1.ProxyConfigurer) Proxy {
@@ -54,8 +55,9 @@ func NewUDPProxy(baseProxy *BaseProxy, cfg v1.ProxyConfigurer) Proxy {
 		return nil
 	}
 	return &UDPProxy{
-		BaseProxy: baseProxy,
-		cfg:       unwrapped,
+		BaseProxy:      baseProxy,
+		cfg:            unwrapped,
+		sessionLimiter: udp.NewSessionLimiter(baseProxy.clientCfg.Transport.MaxUDPSessions),
 	}
 }
 
@@ -156,5 +158,5 @@ func (pxy *UDPProxy) InWorkConn(conn net.Conn, _ *msg.StartWorkConn) {
 	go heartbeatFn(pxy.sendCh)
 
 	// Call Forwarder with proxy protocol version (empty string means no proxy protocol)
-	udp.Forwarder(pxy.localAddr, pxy.readCh, pxy.sendCh, int(pxy.clientCfg.UDPPacketSize), pxy.cfg.Transport.ProxyProtocolVersion)
+	udp.ForwarderWithLimiter(pxy.localAddr, pxy.readCh, pxy.sendCh, int(pxy.clientCfg.UDPPacketSize), pxy.cfg.Transport.ProxyProtocolVersion, pxy.sessionLimiter)
 }

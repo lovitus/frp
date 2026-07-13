@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	udpPeerRouteTTL           = 5 * time.Minute
-	udpPeerRoutePruneInterval = 1 * time.Minute
+	udpPendingPeerTTL           = 10 * time.Second
+	udpPendingPeerPruneInterval = time.Second
+	udpEstablishedPeerTTL       = 5 * time.Minute
+	udpEstablishedPruneInterval = time.Minute
 )
 
 type packet struct {
@@ -110,26 +112,41 @@ func (c *demuxPacketConn) SetWriteDeadline(time.Time) error {
 type UDPDemux struct {
 	conn net.PacketConn
 
-	mu                sync.RWMutex
-	routeFn           func([]byte) string
-	peers             map[string]peerRoute
-	conns             map[string]*demuxPacketConn
-	lastPeerPruneTime time.Time
-	closed            bool
+	mu                   sync.RWMutex
+	routeFn              func([]byte) string
+	pendingPeers         map[string]peerRoute
+	establishedPeers     map[string]peerRoute
+	pendingCounts        map[string]int
+	conns                map[string]*demuxPacketConn
+	maxPendingPeers      int
+	maxPeerRoutes        int
+	nextRouteID          uint64
+	lastPendingPrune     time.Time
+	lastEstablishedPrune time.Time
+	closed               bool
 }
 
 type peerRoute struct {
-	child    *demuxPacketConn
-	lastSeen time.Time
+	id        uint64
+	protocol  string
+	child     *demuxPacketConn
+	createdAt time.Time
+	lastSeen  time.Time
 }
 
-func NewUDPDemux(conn net.PacketConn, routeFn func([]byte) string, names ...string) *UDPDemux {
+func NewUDPDemux(conn net.PacketConn, routeFn func([]byte) string, maxPendingPeers, maxPeerRoutes int, names ...string) *UDPDemux {
+	now := time.Now()
 	d := &UDPDemux{
-		conn:              conn,
-		routeFn:           routeFn,
-		peers:             make(map[string]peerRoute),
-		conns:             make(map[string]*demuxPacketConn, len(names)),
-		lastPeerPruneTime: time.Now(),
+		conn:                 conn,
+		routeFn:              routeFn,
+		pendingPeers:         make(map[string]peerRoute),
+		establishedPeers:     make(map[string]peerRoute),
+		pendingCounts:        make(map[string]int),
+		conns:                make(map[string]*demuxPacketConn, len(names)),
+		maxPendingPeers:      maxPendingPeers,
+		maxPeerRoutes:        maxPeerRoutes,
+		lastPendingPrune:     now,
+		lastEstablishedPrune: now,
 	}
 	for _, name := range names {
 		d.conns[name] = &demuxPacketConn{
@@ -158,24 +175,38 @@ func (d *UDPDemux) Serve() error {
 		now := time.Now()
 
 		d.mu.Lock()
-		if now.Sub(d.lastPeerPruneTime) >= udpPeerRoutePruneInterval {
-			d.pruneStalePeersLocked(now)
-			d.lastPeerPruneTime = now
+		if now.Sub(d.lastPendingPrune) >= udpPendingPeerPruneInterval {
+			d.prunePendingPeersLocked(now)
+			d.lastPendingPrune = now
+		}
+		if now.Sub(d.lastEstablishedPrune) >= udpEstablishedPruneInterval {
+			d.pruneEstablishedPeersLocked(now)
+			d.lastEstablishedPrune = now
 		}
 
-		route := d.peers[key]
+		route, established := d.establishedPeers[key]
+		if established {
+			// Established routes follow UDP peer activity, not a stream or connection
+			// callback. Keeping the route until its idle TTL also ensures late QUIC
+			// short-header and close packets cannot be reclassified as KCP.
+			route.lastSeen = now
+			d.establishedPeers[key] = route
+		} else {
+			route = d.pendingPeers[key]
+		}
 		child := route.child
 		if child == nil {
 			name := d.routeFn(buf[:n])
 			child = d.conns[name]
-			if child == nil {
+			if child == nil || d.pendingCounts[name] >= d.maxPendingPeers {
 				d.mu.Unlock()
 				continue
 			}
-			route.child = child
+			d.nextRouteID++
+			route = peerRoute{id: d.nextRouteID, protocol: name, child: child, createdAt: now, lastSeen: now}
+			d.pendingPeers[key] = route
+			d.pendingCounts[name]++
 		}
-		route.lastSeen = now
-		d.peers[key] = route
 		d.mu.Unlock()
 
 		pkt := packet{
@@ -186,10 +217,90 @@ func (d *UDPDemux) Serve() error {
 	}
 }
 
-func (d *UDPDemux) pruneStalePeersLocked(now time.Time) {
-	for key, route := range d.peers {
-		if now.Sub(route.lastSeen) > udpPeerRouteTTL {
-			delete(d.peers, key)
+func (d *UDPDemux) RouteID(addr net.Addr, protocol string) (uint64, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	key := addr.String()
+	if route, ok := d.pendingPeers[key]; ok && route.protocol == protocol {
+		return route.id, true
+	}
+	if route, ok := d.establishedPeers[key]; ok && route.protocol == protocol {
+		return route.id, true
+	}
+	return 0, false
+}
+
+func (d *UDPDemux) Promote(addr net.Addr, protocol string, routeID uint64) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := addr.String()
+	if route, ok := d.establishedPeers[key]; ok {
+		return route.id == routeID && route.protocol == protocol
+	}
+	route, ok := d.pendingPeers[key]
+	if !ok || route.id != routeID || route.protocol != protocol {
+		return false
+	}
+	if time.Since(route.createdAt) > udpPendingPeerTTL {
+		delete(d.pendingPeers, key)
+		d.pendingCounts[protocol]--
+		return false
+	}
+	delete(d.pendingPeers, key)
+	d.pendingCounts[protocol]--
+	if len(d.establishedPeers) >= d.maxPeerRoutes {
+		return false
+	}
+	route.lastSeen = time.Now()
+	d.establishedPeers[key] = route
+	return true
+}
+
+func (d *UDPDemux) Reject(addr net.Addr, protocol string, routeID uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := addr.String()
+	// Authentication rejection only owns the matching pending route. An
+	// established route may already be shared by other QUIC streams and is
+	// intentionally reclaimed by its bounded idle TTL.
+	if route, ok := d.pendingPeers[key]; ok && route.id == routeID && route.protocol == protocol {
+		delete(d.pendingPeers, key)
+		d.pendingCounts[protocol]--
+	}
+}
+
+func (d *UDPDemux) prunePendingPeersLocked(now time.Time) {
+	for key, route := range d.pendingPeers {
+		if now.Sub(route.createdAt) > udpPendingPeerTTL {
+			delete(d.pendingPeers, key)
+			d.pendingCounts[route.protocol]--
+		}
+	}
+}
+
+func (d *UDPDemux) pruneEstablishedPeersLocked(now time.Time) {
+	stale := 0
+	for _, route := range d.establishedPeers {
+		if now.Sub(route.lastSeen) > udpEstablishedPeerTTL {
+			stale++
+		}
+	}
+	if stale == 0 {
+		return
+	}
+	if stale*2 >= len(d.establishedPeers) {
+		next := make(map[string]peerRoute, len(d.establishedPeers)-stale)
+		for key, route := range d.establishedPeers {
+			if now.Sub(route.lastSeen) <= udpEstablishedPeerTTL {
+				next[key] = route
+			}
+		}
+		d.establishedPeers = next
+		return
+	}
+	for key, route := range d.establishedPeers {
+		if now.Sub(route.lastSeen) > udpEstablishedPeerTTL {
+			delete(d.establishedPeers, key)
 		}
 	}
 }

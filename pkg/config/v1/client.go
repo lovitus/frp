@@ -152,6 +152,8 @@ func (c *ClientCommonConfig) Complete() error {
 }
 
 type ClientTransportConfig struct {
+	// MaxUDPSessions limits sessions independently for each UDP proxy or gateway instance.
+	MaxUDPSessions int `json:"maxUDPSessions,omitempty"`
 	// Protocol specifies the protocol to use when interacting with the server.
 	// Valid values are "tcp", "kcp", "quic", "websocket" and "wss". By default, this value
 	// is "tcp".
@@ -194,6 +196,7 @@ type ClientTransportConfig struct {
 }
 
 func (c *ClientTransportConfig) Complete() {
+	c.MaxUDPSessions = util.EmptyOr(c.MaxUDPSessions, DefaultMaxUDPSessions)
 	c.Protocol = util.EmptyOr(c.Protocol, "tcp")
 	c.DialServerTimeout = util.EmptyOr(c.DialServerTimeout, 10)
 	c.DialServerKeepAlive = util.EmptyOr(c.DialServerKeepAlive, 7200)

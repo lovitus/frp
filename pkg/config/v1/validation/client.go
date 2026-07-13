@@ -158,6 +158,9 @@ func validateTransportConfig(c *v1.ClientTransportConfig) (Warning, error) {
 		warnings Warning
 		errs     error
 	)
+	if c.MaxUDPSessions < 0 {
+		errs = AppendError(errs, fmt.Errorf("transport.maxUDPSessions must not be negative"))
+	}
 
 	if c.HeartbeatTimeout > 0 && c.HeartbeatInterval > 0 {
 		if c.HeartbeatTimeout < c.HeartbeatInterval {

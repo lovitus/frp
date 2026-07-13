@@ -42,7 +42,8 @@ type SUDPProxy struct {
 
 	localAddr *net.UDPAddr
 
-	closeCh chan struct{}
+	closeCh        chan struct{}
+	sessionLimiter *udp.SessionLimiter
 }
 
 func NewSUDPProxy(baseProxy *BaseProxy, cfg v1.ProxyConfigurer) Proxy {
@@ -51,9 +52,10 @@ func NewSUDPProxy(baseProxy *BaseProxy, cfg v1.ProxyConfigurer) Proxy {
 		return nil
 	}
 	return &SUDPProxy{
-		BaseProxy: baseProxy,
-		cfg:       unwrapped,
-		closeCh:   make(chan struct{}),
+		BaseProxy:      baseProxy,
+		cfg:            unwrapped,
+		closeCh:        make(chan struct{}),
+		sessionLimiter: udp.NewSessionLimiter(baseProxy.clientCfg.Transport.MaxUDPSessions),
 	}
 }
 
@@ -188,5 +190,5 @@ func (pxy *SUDPProxy) InWorkConn(conn net.Conn, _ *msg.StartWorkConn) {
 	go workConnReaderFn(workConn, readCh)
 	go heartbeatFn(sendCh)
 
-	udp.Forwarder(pxy.localAddr, readCh, sendCh, int(pxy.clientCfg.UDPPacketSize), pxy.cfg.Transport.ProxyProtocolVersion)
+	udp.ForwarderWithLimiter(pxy.localAddr, readCh, sendCh, int(pxy.clientCfg.UDPPacketSize), pxy.cfg.Transport.ProxyProtocolVersion, pxy.sessionLimiter)
 }

@@ -71,7 +71,13 @@ func (svr *Service) initMixTransport() error {
 	}
 	log.Infof("frps mix udp listen on %s", address)
 
-	mcfg.udpDemux = tmix.NewUDPDemux(svr.mixUDPConn, tmix.RouteQUICThenKCP, "quic", "kcp")
+	mcfg.udpDemux = tmix.NewUDPDemux(
+		svr.mixUDPConn,
+		tmix.RouteQUICThenKCP,
+		svr.cfg.Transport.MaxUDPPendingPeers,
+		svr.cfg.Transport.MaxUDPPeerRoutes,
+		"quic", "kcp",
+	)
 	if _, ok := mcfg.protocols[v1.MixProtocolKCP]; ok {
 		ln, err := kcp.ServeConn(nil, 10, 3, tmix.MustPacketConn(mcfg.udpDemux, "kcp"))
 		if err != nil {
@@ -252,11 +258,23 @@ func (svr *Service) handleMixKCPListener(l net.Listener, proto v1.MixProtocolCon
 
 		ctx := xlog.NewContext(context.Background(), xlog.New())
 		go func() {
+			routeID, ok := svr.mixConfig.udpDemux.RouteID(kcpConn.RemoteAddr(), proto.Protocol)
+			if !ok {
+				_ = kcpConn.Close()
+				return
+			}
 			if err := tmix.ReadAndVerifyToken(kcpConn, proto.Protocol, proto.Password); err != nil {
+				svr.mixConfig.udpDemux.Reject(kcpConn.RemoteAddr(), proto.Protocol, routeID)
+				_ = kcpConn.Close()
+				return
+			}
+			if !svr.mixConfig.udpDemux.Promote(kcpConn.RemoteAddr(), proto.Protocol, routeID) {
 				_ = kcpConn.Close()
 				return
 			}
 			if err := tmix.WriteTokenAck(kcpConn); err != nil {
+				// Authentication already established this route. Keep it until its
+				// normal TTL expires so an ACK failure cannot remove a reused route.
 				_ = kcpConn.Close()
 				return
 			}
@@ -275,6 +293,11 @@ func (svr *Service) handleMixQUICListener(l *quic.Listener, proto v1.MixProtocol
 		}
 		ctx := xlog.NewContext(context.Background(), xlog.New())
 		go func(ctx context.Context, frpConn *quic.Conn) {
+			routeID, ok := svr.mixConfig.udpDemux.RouteID(frpConn.RemoteAddr(), proto.Protocol)
+			if !ok {
+				_ = frpConn.CloseWithError(0, "")
+				return
+			}
 			for {
 				stream, err := frpConn.AcceptStream(context.Background())
 				if err != nil {
@@ -284,11 +307,18 @@ func (svr *Service) handleMixQUICListener(l *quic.Listener, proto v1.MixProtocol
 				go func() {
 					conn := netpkg.QuicStreamToNetConn(stream, frpConn)
 					if err := tmix.ReadAndVerifyToken(conn, proto.Protocol, proto.Password); err != nil {
-						_ = conn.Close()
+						_ = frpConn.CloseWithError(0, "")
+						svr.mixConfig.udpDemux.Reject(frpConn.RemoteAddr(), proto.Protocol, routeID)
+						return
+					}
+					if !svr.mixConfig.udpDemux.Promote(frpConn.RemoteAddr(), proto.Protocol, routeID) {
+						_ = frpConn.CloseWithError(0, "")
 						return
 					}
 					if err := tmix.WriteTokenAck(conn); err != nil {
-						_ = conn.Close()
+						// Promote is idempotent across streams. Leave the established
+						// route to TTL cleanup instead of racing another valid stream.
+						_ = frpConn.CloseWithError(0, "")
 						return
 					}
 					xlog.FromContextSafe(ctx).Infof("mix selected protocol [quic] for %s", conn.RemoteAddr())
