@@ -68,14 +68,6 @@ measured concurrent UDP usage.
   replace host or upstream DDoS protection.
 * Common frpc transport settings, including `maxUDPSessions`, require an frpc
   restart to take effect.
-* New frpc dials follow the current operating-system route. Mobile VPN hosts
-  should protect sockets from VPN loopback and restart the frpc service after a
-  debounced effective interface, address, or default-route change. Healthy
-  same-address Wi-Fi roaming and unchanged DHCP renewals do not require restart.
-* Leave `transport.connectServerLocalIP` empty when the client address can change.
-  Embedded Gateway helper listeners use kernel-assigned loopback ports; fixed
-  public, visitor, proxy, and web ports fail clearly on conflict rather than
-  silently changing the advertised endpoint.
 
 ## Validation
 
@@ -85,6 +77,3 @@ Validated for this release with:
 * `go test -race ./pkg/proto/udp ./pkg/transport/mix ./client`
 * `go vet ./pkg/transport/mix ./pkg/proto/udp ./client ./server`
 * `./hack/run-mix-bench.sh`
-* Real-machine recovery checks cover UDP source-address flooding, concurrent TCP
-  availability, process memory/FD stability, and non-disruptive route-loss and
-  recovery simulation on a disposable interface.
